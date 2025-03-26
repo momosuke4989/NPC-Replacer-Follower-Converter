@@ -123,6 +123,8 @@ begin
 
 
   // Relationshipレコードを追加
+  // 普通にレコードを追加できないので、Skyrim.esm内のRelationshipレコードをコピーする
+  // HousecarlWhiterunPlayerRelationshipをコピー元として参照する
   refrel := RecordByFormID(FileByIndex(0), $00103AED, True);
   rel := wbCopyElementToFile(refrel, GetFile(e), True, True);
   if not Assigned(rel) then
@@ -131,15 +133,16 @@ begin
     Result := 1;
     Exit;
   end;
+  
+  // RelationshipレコードのEditor IDをNPCレコードのEditor IDをベースに変更
+  SetElementEditValues(rel, 'EDID', GetElementEditValues(e, 'EDID') + '_Rel');
 
   // 親（Parent）を設定
-  SetElementEditValues(rel, 'Parent', Name(e));
+  SetElementEditValues(rel, 'DATA\Parent', IntToHex(GetLoadOrderFormID(e), 8));
 
-  // 子（Child）を設定
-  SetElementEditValues(rel, 'Child', Name(PlayerRef));
-
-  // 関係性のランクを設定（0: Acquaintance, 1: Confidant, 2: Friend, 3: Ally, 4: Lover）
-  SetElementEditValues(rel, 'Rank', '2'); // 2はFriendを示す
+  // 関係性のランクを設定（4: Acquaintance, 2: Confidant, 3: Friend, 1: Ally, 0: Lover）
+  // どうやらゲーム内の数値とレコードで設定する数値が異なっているようだ。ややこしい。
+  SetElementEditValues(rel, 'DATA\Rank', '3'); // 3はFriendを示す
 
   AddMessage('Added a Relationship record: ' + Name(e) + ' -> Player');
 
