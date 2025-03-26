@@ -6,13 +6,13 @@ uses xEditAPI, SysUtils, StrUtils, Windows;
 
 const
   // 各変更のオン/オフ
-  ENABLE_REMOVE_VMADS = True;
-  ENABLE_REMOVE_FACTIONS = True;
-  ENABLE_ADD_FACTIONS = True;
-  ENABLE_REMOVE_AI_PACKAGES = True;
+  ENABLE_SET_VMADS = True;
+  ENABLE_SET_FACTIONS = True;
+  ENABLE_SET_AI_PACKAGES = True;
   ENABLE_SET_VOICE = True;
-  ENABLE_REMOVE_OUTFIT = True;
+  ENABLE_SET_OUTFIT = True;
   ENABLE_SET_ESSENTIAL_PROTECTED = True;
+  ENABLE_SET_HOME_LOCATION = True;
 
   // 変更する値
   DEFAULT_FOLLOWER_VOICE = 'MaleEvenToned';
@@ -20,7 +20,7 @@ const
   DEFAULT_ESSENTIAL = '0';
 
 var
-  NPC: IInterface;
+  PlayerRef: IInterface;
 
 function IsMasterAEPlugin(plugin: IInterface): Boolean;
 var
@@ -56,68 +56,92 @@ end;
 function Initialize: integer;
 begin
   Result := 0;
+  PlayerRef := RecordByFormID(FileByIndex(0), $00000007, True);
 end;
 
 function Process(e: IInterface): integer;
 var
-  vmad, factions, aiPackages, voice, outfit, flags: IInterface;
+  vmad, factions, aiPackages, voice, outfit, flags, refrel, rel: IInterface;
 begin
   // NPCレコードのみ処理
   if Signature(e) <> 'NPC_' then Exit;
 
   AddMessage('Modifying NPC: ' + Name(e));
-  NPC := e;
+
 
   // クエストスクリプトの削除
-  if ENABLE_REMOVE_VMADS then begin
-    vmad := ElementBySignature(NPC, 'VMAD');
+  if ENABLE_SET_VMADS then begin
+    vmad := ElementBySignature(e, 'VMAD');
     if Assigned(vmad) then
-      RemoveElement(NPC, 'VMAD');
+      RemoveElement(e, 'VMAD');
   end;
 
   // AI パッケージの修正
-  if ENABLE_REMOVE_AI_PACKAGES then begin
-    aiPackages := ElementByPath(NPC, 'AI Data\Packages');
+  if ENABLE_SET_AI_PACKAGES then begin
+    aiPackages := ElementByPath(e, 'AI Data\Packages');
     if Assigned(aiPackages) then
-      RemoveElement(NPC, 'AI Data\Packages');
-    SetElementEditValues(NPC, 'AI Data\Template Flags', 'Use Default AI');
+      RemoveElement(e, 'AI Data\Packages');
+    SetElementEditValues(e, 'AI Data\Template Flags', 'Use Default AI');
   end;
 
   // Faction の修正
-  if ENABLE_REMOVE_FACTIONS then begin
-    factions := ElementByPath(NPC, 'Factions');
+  if ENABLE_SET_FACTIONS then begin
+    factions := ElementByPath(e, 'Factions');
     if Assigned(factions) then
-      RemoveElement(NPC, 'Factions');
+      RemoveElement(e, 'Factions');
+    
+    Add(e, 'Factions', True);
+//    SetElementEditValues(e, 'Factions', 'PotentialFollowerFaction');
+    
+//    SetElementEditValues(e, 'Factions', 'CurrentFollowerFaction');
+    
   end;
 
-  if ENABLE_ADD_FACTIONS then begin
-    Add(NPC, 'Factions', True);
-    AddFaction(NPC, 'PlayerFaction', 0);  // フォロワーとして認識
-    AddFaction(NPC, 'PotentialFollowerFaction', 0);  // 勧誘可能に
-  end;
-
+{
   // ボイスタイプの設定
   if ENABLE_SET_VOICE then begin
-    voice := ElementByPath(NPC, 'VTCK - Voice');
+    voice := ElementByPath(e, 'VTCK - Voice');
     if Assigned(voice) then
-      SetElementEditValues(NPC, 'VTCK - Voice', DEFAULT_FOLLOWER_VOICE);
+      SetElementEditValues(e, 'VTCK - Voice', DEFAULT_FOLLOWER_VOICE);
   end;
-
+}
   // 所持品と Outfit の設定
-  if ENABLE_REMOVE_OUTFIT then begin
-    outfit := ElementBySignature(NPC, 'DOFT');
+  if ENABLE_SET_OUTFIT then begin
+    outfit := ElementBySignature(e, 'DOFT');
     if Assigned(outfit) then
-      RemoveElement(NPC, 'DOFT');
+      RemoveElement(e, 'DOFT');
   end;
 
   // Essential / Protected の設定
   if ENABLE_SET_ESSENTIAL_PROTECTED then begin
-    flags := ElementByPath(NPC, 'ACBS - Configuration');
+    flags := ElementByPath(e, 'ACBS - Configuration');
     if Assigned(flags) then begin
       SetElementEditValues(flags, 'Flags\Essential', DEFAULT_ESSENTIAL);
       SetElementEditValues(flags, 'Flags\Protected', DEFAULT_PROTECTED);
     end;
   end;
+
+
+  // Relationshipレコードを追加
+  refrel := RecordByFormID(FileByIndex(0), $00103AED, True);
+  rel := wbCopyElementToFile(refrel, GetFile(e), True, True);
+  if not Assigned(rel) then
+  begin
+    AddMessage('Failed to add Relationship record.');
+    Result := 1;
+    Exit;
+  end;
+
+  // 親（Parent）を設定
+  SetElementEditValues(rel, 'Parent', Name(e));
+
+  // 子（Child）を設定
+  SetElementEditValues(rel, 'Child', Name(PlayerRef));
+
+  // 関係性のランクを設定（0: Acquaintance, 1: Confidant, 2: Friend, 3: Ally, 4: Lover）
+  SetElementEditValues(rel, 'Rank', '2'); // 2はFriendを示す
+
+  AddMessage('Added a Relationship record: ' + Name(e) + ' -> Player');
 
   Result := 0;
 end;
