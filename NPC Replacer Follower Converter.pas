@@ -20,7 +20,7 @@ const
   DEFAULT_ESSENTIAL = '0';
 
 var
-  PlayerRef: IInterface;
+  PlayerRef, potMarriageFac, potFollowerFac, curFollowerFac : IInterface;
 
 function IsMasterAEPlugin(plugin: IInterface): Boolean;
 var
@@ -57,11 +57,16 @@ function Initialize: integer;
 begin
   Result := 0;
   PlayerRef := RecordByFormID(FileByIndex(0), $00000007, True);
+  potMarriageFac := RecordByFormID(FileByIndex(0), $00019809, True);
+  potFollowerFac := RecordByFormID(FileByIndex(0), $0005C84D, True);
+  curFollowerFac := RecordByFormID(FileByIndex(0), $0005C84E, True);
+  
 end;
 
 function Process(e: IInterface): integer;
 var
-  vmad, factions, aiPackages, voice, outfit, flags, refrel, rel: IInterface;
+  vmad, factions, newFaction, aiPackages, voice, outfit, flags, existRel, refRel, rel: IInterface;
+  relEditorID: string;
 begin
   // NPCレコードのみ処理
   if Signature(e) <> 'NPC_' then Exit;
@@ -89,12 +94,20 @@ begin
     factions := ElementByPath(e, 'Factions');
     if Assigned(factions) then
       RemoveElement(e, 'Factions');
+   
+    factions := Add(e, 'Factions', True);
     
-    Add(e, 'Factions', True);
-//    SetElementEditValues(e, 'Factions', 'PotentialFollowerFaction');
+    newFaction := ElementAssign(factions, HighInteger, nil, False);
+    SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(potMarriageFac), 8));
     
-//    SetElementEditValues(e, 'Factions', 'CurrentFollowerFaction');
+    newFaction := ElementAssign(factions, HighInteger, nil, False);
+    SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(potFollowerFac), 8));
     
+    newFaction := ElementAssign(factions, HighInteger, nil, False);
+    SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(curFollowerFac), 8));
+    SetElementEditValues(newFaction, 'Rank', '-1');
+    
+    RemoveElement(factions, ElementByIndex(factions, 0));
   end;
 
 {
@@ -123,29 +136,36 @@ begin
 
 
   // Relationshipレコードを追加
-  // 普通にレコードを追加できないので、Skyrim.esm内のRelationshipレコードをコピーする
-  // HousecarlWhiterunPlayerRelationshipをコピー元として参照する
-  refrel := RecordByFormID(FileByIndex(0), $00103AED, True);
-  rel := wbCopyElementToFile(refrel, GetFile(e), True, True);
-  if not Assigned(rel) then
-  begin
-    AddMessage('Failed to add Relationship record.');
-    Result := 1;
-    Exit;
+  relEditorID := GetElementEditValues(e, 'EDID') + 'Rel';
+  existRel := RecordByEditorID(GetFile(e), relEditorID);
+  if Assigned(existRel) then
+      AddMessage('A Relationship record for this NPC already exists.');
+  else begin
+    // 普通にレコードを追加できないので、Skyrim.esm内のRelationshipレコードをコピーする
+    // HousecarlWhiterunPlayerRelationshipをコピー元として参照する
+    refRel := RecordByFormID(FileByIndex(0), $00103AED, True);
+    rel := wbCopyElementToFile(refRel, GetFile(e), True, True);
+    if not Assigned(rel) then
+    begin
+      AddMessage('Failed to add Relationship record.');
+      Result := 1;
+      Exit;
+    end;
+    
+    // RelationshipレコードのEditor IDをNPCレコードのEditor IDをベースに変更
+    SetElementEditValues(rel, 'EDID', relEditorID);
+
+    // 親（Parent）を設定
+    SetElementEditValues(rel, 'DATA\Parent', IntToHex(GetLoadOrderFormID(e), 8));
+
+    // 関係性のランクを設定（4: Acquaintance, 2: Confidant, 3: Friend, 1: Ally, 0: Lover）
+    // どうやらゲーム内の数値とレコードで設定する数値が異なっているようだ。ややこしい。
+    SetElementEditValues(rel, 'DATA\Rank', '3'); // 3はFriendを示す
+
+    AddMessage('Added a Relationship record: ' + Name(e) + ' -> Player');
   end;
+
   
-  // RelationshipレコードのEditor IDをNPCレコードのEditor IDをベースに変更
-  SetElementEditValues(rel, 'EDID', GetElementEditValues(e, 'EDID') + '_Rel');
-
-  // 親（Parent）を設定
-  SetElementEditValues(rel, 'DATA\Parent', IntToHex(GetLoadOrderFormID(e), 8));
-
-  // 関係性のランクを設定（4: Acquaintance, 2: Confidant, 3: Friend, 1: Ally, 0: Lover）
-  // どうやらゲーム内の数値とレコードで設定する数値が異なっているようだ。ややこしい。
-  SetElementEditValues(rel, 'DATA\Rank', '3'); // 3はFriendを示す
-
-  AddMessage('Added a Relationship record: ' + Name(e) + ' -> Player');
-
   Result := 0;
 end;
 
