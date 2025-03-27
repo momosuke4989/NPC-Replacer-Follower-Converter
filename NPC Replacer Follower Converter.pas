@@ -68,14 +68,16 @@ var
   vmad, factions, newFaction, aiPackages, voice, outfit, flags, refRel, rel: IInterface;
   recordGroup: IwbGroupRecord;
   existRelRec: IwbMainRecord;
-  relEditorID: string;
+  NPCEditorID, baseEditorID, relEditorID: string;
+  underscorePos: integer;
 begin
   // NPCレコードのみ処理
   if Signature(e) <> 'NPC_' then Exit;
 
   AddMessage('Modifying NPC: ' + Name(e));
 
-
+  NPCEditorID := GetElementEditValues(e, 'EDID');
+  
   // クエストスクリプトの削除
   if ENABLE_SET_VMADS then begin
     vmad := ElementBySignature(e, 'VMAD');
@@ -143,7 +145,7 @@ begin
 
   // Relationshipレコードを追加
   // 選択中のNPCに関連するRelationshipレコードがすでに存在していたら何もしない
-  relEditorID := GetElementEditValues(e, 'EDID') + 'Rel';
+  relEditorID := NPCEditorID + 'Rel';
   recordGroup := GroupBySignature(GetFile(e), 'RELA');
   existRelRec := MainRecordByEditorID(recordGroup, relEditorID);
   if Assigned(existRelRec) then
@@ -173,9 +175,14 @@ begin
     AddMessage('Added a Relationship record: ' + Name(e) + ' -> Player');
   end;
 
+  // 配置する場所を設定
   if ENABLE_SET_HOME_LOCATION then begin
-    
+    // EditorIDから本来のリプレイス先となるNPCのEditorIDを取得
+    underscorePos := LastDelimiter('_', NPCEditorID);
+    AddMessage('UnderScore position: ' + IntToStr(underscorePos));
+    // リプレイス先NPCの配置場所を取得し、同じ場所に配置する
   end;
+  
   Result := 0;
 end;
 
