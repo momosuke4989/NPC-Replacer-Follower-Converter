@@ -65,7 +65,9 @@ end;
 
 function Process(e: IInterface): integer;
 var
-  vmad, factions, newFaction, aiPackages, voice, outfit, flags, existRel, refRel, rel: IInterface;
+  vmad, factions, newFaction, aiPackages, voice, outfit, flags, refRel, rel: IInterface;
+  recordGroup: IwbGroupRecord;
+  existRelRec: IwbMainRecord;
   relEditorID: string;
 begin
   // NPCレコードのみ処理
@@ -96,6 +98,7 @@ begin
       RemoveElement(e, 'Factions');
    
     factions := Add(e, 'Factions', True);
+    RemoveElement(factions, ElementByIndex(factions, 0));
     
     newFaction := ElementAssign(factions, HighInteger, nil, False);
     SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(potMarriageFac), 8));
@@ -107,7 +110,7 @@ begin
     SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(curFollowerFac), 8));
     SetElementEditValues(newFaction, 'Rank', '-1');
     
-    RemoveElement(factions, ElementByIndex(factions, 0));
+
   end;
 
 {
@@ -136,10 +139,12 @@ begin
 
 
   // Relationshipレコードを追加
+  // 選択中のNPCに関連するRelationshipレコードがすでに存在していたら何もしない
   relEditorID := GetElementEditValues(e, 'EDID') + 'Rel';
-  existRel := RecordByEditorID(GetFile(e), relEditorID);
-  if Assigned(existRel) then
-      AddMessage('A Relationship record for this NPC already exists.');
+  recordGroup := GroupBySignature(GetFile(e), 'RELA');
+  existRelRec := MainRecordByEditorID(recordGroup, relEditorID);
+  if Assigned(existRelRec) then
+      AddMessage('A Relationship record for this NPC already exists.')
   else begin
     // 普通にレコードを追加できないので、Skyrim.esm内のRelationshipレコードをコピーする
     // HousecarlWhiterunPlayerRelationshipをコピー元として参照する
