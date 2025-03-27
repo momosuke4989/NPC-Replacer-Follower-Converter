@@ -93,24 +93,27 @@ begin
 
   // Faction の修正
   if ENABLE_SET_FACTIONS then begin
+    // Factionsエレメントが存在していた場合、削除してFactionsエレメントをクリアにする
     factions := ElementByPath(e, 'Factions');
     if Assigned(factions) then
       RemoveElement(e, 'Factions');
-   
+    
+    // Factionsエレメントを新規追加、自動で追加されたnull Factionを削除
     factions := Add(e, 'Factions', True);
     RemoveElement(factions, ElementByIndex(factions, 0));
     
+    // PotentialMarriageFactionを追加
     newFaction := ElementAssign(factions, HighInteger, nil, False);
     SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(potMarriageFac), 8));
     
+    // PotentialFollowerFactionを追加
     newFaction := ElementAssign(factions, HighInteger, nil, False);
     SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(potFollowerFac), 8));
     
+    // CurrentFollowerFactionを追加、ランクを-1に設定
     newFaction := ElementAssign(factions, HighInteger, nil, False);
     SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(curFollowerFac), 8));
     SetElementEditValues(newFaction, 'Rank', '-1');
-    
-
   end;
 
 {
@@ -170,7 +173,9 @@ begin
     AddMessage('Added a Relationship record: ' + Name(e) + ' -> Player');
   end;
 
-  
+  if ENABLE_SET_HOME_LOCATION then begin
+    
+  end;
   Result := 0;
 end;
 
