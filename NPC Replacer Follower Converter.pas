@@ -19,12 +19,14 @@ const
   // 変更する値
   DEFAULT_AI_PACKAGE = $0001B217;
   DEFAULT_COMBAT_STYLE = $0003BE1B;
+  DEFAULT_OUTFIT = $0009D5DF;
   DEFAULT_FOLLOWER_VOICE = 'MaleEvenToned';
   DEFAULT_PROTECTED = '1';
   DEFAULT_ESSENTIAL = '0';
 
+  LYDIA_PLAYER_RELATIONSHIP = $00103AED;
 var
-  PlayerRef, potMarriageFac, potFollowerFac, curFollowerFac, defaultAIPackage, defaultCombatStyle : IInterface;
+  PlayerRef, potMarriageFac, potFollowerFac, curFollowerFac, defaultAIPackage, defaultCombatStyle, defaultOutfit : IInterface;
 
 function IsMasterAEPlugin(plugin: IInterface): Boolean;
 var
@@ -67,6 +69,7 @@ begin
   
   defaultAIPackage := RecordByFormID(FileByIndex(0), DEFAULT_AI_PACKAGE, True);
   defaultCombatStyle := RecordByFormID(FileByIndex(0), DEFAULT_COMBAT_STYLE, True);
+  defaultOutfit := RecordByFormID(FileByIndex(0), DEFAULT_OUTFIT, True);
   
 end;
 
@@ -130,8 +133,9 @@ begin
   // Outfit の設定
   if ENABLE_SET_OUTFIT then begin
     outfit := ElementBySignature(e, 'DOFT');
-    if Assigned(outfit) then
-      RemoveElement(e, 'DOFT');
+    if not Assigned(outfit) then
+      Add(e, 'DOFT', True);
+    SetElementEditValues(e, 'DOFT', IntToHex(GetLoadOrderFormID(defaultOutfit), 8));
   end;
   
   // Itemsの設定
@@ -141,16 +145,25 @@ begin
     if Assigned(inventory) then
       RemoveElement(e, 'Items');
   end;
-
+  
+  // Flagの設定
+  flags := ElementByPath(e, 'ACBS - Configuration');
+  if Assigned(flags) then begin
+    SetElementEditValues(flags, 'Flags\Unique', 1);
+    SetElementEditValues(flags, 'Flags\looped script?', 0);
+    SetElementEditValues(flags, 'Flags\PC Level Mult', 1);
+    SetElementEditValues(flags, 'Flags\Auto-calc stats', 1);
+  end;
+  
   // Essential / Protected の設定
   if ENABLE_SET_ESSENTIAL_PROTECTED then begin
-    flags := ElementByPath(e, 'ACBS - Configuration');
     if Assigned(flags) then begin
       SetElementEditValues(flags, 'Flags\Essential', DEFAULT_ESSENTIAL);
       SetElementEditValues(flags, 'Flags\Protected', DEFAULT_PROTECTED);
     end;
   end;
-
+  
+  
   // Faction の修正
   if ENABLE_SET_FACTIONS then begin
     // Factionsエレメントが存在していた場合、削除してFactionsエレメントをクリアにする
@@ -186,7 +199,7 @@ begin
   else begin
     // 普通にレコードを追加できないので、Skyrim.esm内のRelationshipレコードをコピーする
     // HousecarlWhiterunPlayerRelationshipをコピー元として参照する
-    refRel := RecordByFormID(FileByIndex(0), $00103AED, True);
+    refRel := RecordByFormID(FileByIndex(0), LYDIA_PLAYER_RELATIONSHIP, True);
     rel := wbCopyElementToFile(refRel, GetFile(e), True, True);
     if not Assigned(rel) then
     begin
