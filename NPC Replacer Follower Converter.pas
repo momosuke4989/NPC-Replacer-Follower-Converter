@@ -7,21 +7,22 @@ uses xEditAPI, SysUtils, StrUtils, Windows;
 const
   // 各変更のオン/オフ
   ENABLE_SET_VMADS = True;
-  ENABLE_SET_FACTIONS = True;
   ENABLE_SET_AI_PACKAGES = True;
-  ENABLE_SET_VOICE = True;
   ENABLE_SET_OUTFIT = True;
   ENABLE_SET_INVETORY = True;
+  ENABLE_SET_VOICE = True;
   ENABLE_SET_ESSENTIAL_PROTECTED = True;
+  ENABLE_SET_FACTIONS = True;
   ENABLE_SET_HOME_LOCATION = True;
 
   // 変更する値
+  DEFAULT_AI_PACKAGE = $0001B217;
   DEFAULT_FOLLOWER_VOICE = 'MaleEvenToned';
   DEFAULT_PROTECTED = '1';
   DEFAULT_ESSENTIAL = '0';
 
 var
-  PlayerRef, potMarriageFac, potFollowerFac, curFollowerFac : IInterface;
+  PlayerRef, potMarriageFac, potFollowerFac, curFollowerFac, defaultAIPackage : IInterface;
 
 function IsMasterAEPlugin(plugin: IInterface): Boolean;
 var
@@ -62,11 +63,13 @@ begin
   potFollowerFac := RecordByFormID(FileByIndex(0), $0005C84D, True);
   curFollowerFac := RecordByFormID(FileByIndex(0), $0005C84E, True);
   
+  defaultAIPackage := RecordByFormID(FileByIndex(0), DEFAULT_AI_PACKAGE, True);
+  
 end;
 
 function Process(e: IInterface): integer;
 var
-  vmad, factions, newFaction, aiPackages, voice, outfit, inventory, item, itemRecord, flags: IInterface;
+  vmad, factions, newFaction, aiPackages, newAiPackage, voice, outfit, inventory, item, itemRecord, flags: IInterface;
   relrecordGroup, npcRecordGroup: IwbGroupRecord;
   existRelRec, baseNPCRecord, refCell, newCell, refRel, rel: IwbMainRecord;
   targetFile : IwbFile;
@@ -90,10 +93,47 @@ begin
 
   // AI パッケージの修正
   if ENABLE_SET_AI_PACKAGES then begin
-    aiPackages := ElementByPath(e, 'AI Data\Packages');
+    aiPackages := ElementByPath(e, 'Packages');
     if Assigned(aiPackages) then
-      RemoveElement(e, 'AI Data\Packages');
-    SetElementEditValues(e, 'AI Data\Template Flags', 'Use Default AI');
+      RemoveElement(e, 'Packages');
+    
+    aiPackages := Add(e, 'Packages', True);
+    RemoveElement(aiPackages, ElementByIndex(aiPackages, 0));
+    
+    newAiPackage := ElementAssign(aiPackages, HighInteger, nil, False);
+    SetEditValue(newAiPackage, IntToHex(GetLoadOrderFormID(defaultAIPackage), 8));
+  end;
+
+{
+  // ボイスタイプの設定
+  if ENABLE_SET_VOICE then begin
+    voice := ElementByPath(e, 'VTCK - Voice');
+    if Assigned(voice) then
+      SetElementEditValues(e, 'VTCK - Voice', DEFAULT_FOLLOWER_VOICE);
+  end;
+}
+  // Outfit の設定
+  if ENABLE_SET_OUTFIT then begin
+    outfit := ElementBySignature(e, 'DOFT');
+    if Assigned(outfit) then
+      RemoveElement(e, 'DOFT');
+  end;
+  
+  // Itemsの設定
+  if ENABLE_SET_INVETORY then begin
+    // インベントリリストを取得
+    inventory := ElementByPath(e, 'Items');
+    if Assigned(inventory) then
+      RemoveElement(e, 'Items');
+  end;
+
+  // Essential / Protected の設定
+  if ENABLE_SET_ESSENTIAL_PROTECTED then begin
+    flags := ElementByPath(e, 'ACBS - Configuration');
+    if Assigned(flags) then begin
+      SetElementEditValues(flags, 'Flags\Essential', DEFAULT_ESSENTIAL);
+      SetElementEditValues(flags, 'Flags\Protected', DEFAULT_PROTECTED);
+    end;
   end;
 
   // Faction の修正
@@ -120,52 +160,6 @@ begin
     SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(curFollowerFac), 8));
     SetElementEditValues(newFaction, 'Rank', '-1');
   end;
-
-{
-  // ボイスタイプの設定
-  if ENABLE_SET_VOICE then begin
-    voice := ElementByPath(e, 'VTCK - Voice');
-    if Assigned(voice) then
-      SetElementEditValues(e, 'VTCK - Voice', DEFAULT_FOLLOWER_VOICE);
-  end;
-}
-  // Outfit の設定
-  if ENABLE_SET_OUTFIT then begin
-    outfit := ElementBySignature(e, 'DOFT');
-    if Assigned(outfit) then
-      RemoveElement(e, 'DOFT');
-  end;
-  
-{  if ENABLE_SET_INVETORY then begin
-    // インベントリリストを取得
-    inventory := ElementByPath(e, 'Items');
-    // インベントリ内のアイテムを逆順で走査
-    for i := ElementCount(inventory) - 1 downto 0 do
-    begin
-      item := ElementByIndex(inventory, i);
-      itemRecord := LinksTo(ElementByPath(item, 'Item'));
-
-      // アイテムの種類を判定
-      itemType := Signature(itemRecord);
-
-      // 武器以外のアイテムを削除
-      if (itemType <> 'WEAP') then
-      begin
-        RemoveElement(inventory, item);
-        AddMessage('Removed item: ' + Name(itemRecord) + ' from NPC: ' + Name(e));
-      end;
-    end;
-  end;
-}
-  // Essential / Protected の設定
-  if ENABLE_SET_ESSENTIAL_PROTECTED then begin
-    flags := ElementByPath(e, 'ACBS - Configuration');
-    if Assigned(flags) then begin
-      SetElementEditValues(flags, 'Flags\Essential', DEFAULT_ESSENTIAL);
-      SetElementEditValues(flags, 'Flags\Protected', DEFAULT_PROTECTED);
-    end;
-  end;
-
 
   // Relationshipレコードを追加
   // 選択中のNPCに関連するRelationshipレコードがすでに存在していたら何もしない
@@ -253,9 +247,6 @@ begin
         end;
       end;
     end;
-
-
-    
   end;
   
   Result := 0;
