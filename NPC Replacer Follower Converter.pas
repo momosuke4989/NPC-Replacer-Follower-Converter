@@ -8,6 +8,7 @@ const
   // 各変更のオン/オフ
   ENABLE_SET_VMADS = True;
   ENABLE_SET_AI_PACKAGES = True;
+  ENABLE_SET_COMBAT_STYLE = True;
   ENABLE_SET_OUTFIT = True;
   ENABLE_SET_INVETORY = True;
   ENABLE_SET_VOICE = True;
@@ -17,12 +18,13 @@ const
 
   // 変更する値
   DEFAULT_AI_PACKAGE = $0001B217;
+  DEFAULT_COMBAT_STYLE = $0003BE1B;
   DEFAULT_FOLLOWER_VOICE = 'MaleEvenToned';
   DEFAULT_PROTECTED = '1';
   DEFAULT_ESSENTIAL = '0';
 
 var
-  PlayerRef, potMarriageFac, potFollowerFac, curFollowerFac, defaultAIPackage : IInterface;
+  PlayerRef, potMarriageFac, potFollowerFac, curFollowerFac, defaultAIPackage, defaultCombatStyle : IInterface;
 
 function IsMasterAEPlugin(plugin: IInterface): Boolean;
 var
@@ -64,12 +66,13 @@ begin
   curFollowerFac := RecordByFormID(FileByIndex(0), $0005C84E, True);
   
   defaultAIPackage := RecordByFormID(FileByIndex(0), DEFAULT_AI_PACKAGE, True);
+  defaultCombatStyle := RecordByFormID(FileByIndex(0), DEFAULT_COMBAT_STYLE, True);
   
 end;
 
 function Process(e: IInterface): integer;
 var
-  vmad, factions, newFaction, aiPackages, newAiPackage, voice, outfit, inventory, item, itemRecord, flags: IInterface;
+  vmad, factions, newFaction, aiPackages, newAiPackage, combatStyle, voice, outfit, inventory, item, itemRecord, flags: IInterface;
   relrecordGroup, npcRecordGroup: IwbGroupRecord;
   existRelRec, baseNPCRecord, refCell, newCell, refRel, rel: IwbMainRecord;
   targetFile : IwbFile;
@@ -104,6 +107,18 @@ begin
     SetEditValue(newAiPackage, IntToHex(GetLoadOrderFormID(defaultAIPackage), 8));
   end;
 
+  // combat styleの設定
+  if ENABLE_SET_COMBAT_STYLE then begin
+    if GetElementEditValues(e, 'ZNAM') = '' then
+      begin
+        // Combat Styleエレメントを取得または作成
+        if not Assigned(ElementByPath(e, 'ZNAM')) then
+          Add(e, 'ZNAM', True);
+
+        // Combat Styleを設定
+        SetElementEditValues(e, 'ZNAM', IntToHex(GetLoadOrderFormID(defaultCombatStyle), 8));
+      end
+  end;
 {
   // ボイスタイプの設定
   if ENABLE_SET_VOICE then begin
