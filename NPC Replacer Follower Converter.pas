@@ -14,19 +14,26 @@ const
   ENABLE_SET_VOICE = True;
   ENABLE_SET_ESSENTIAL_PROTECTED = True;
   ENABLE_SET_FACTIONS = True;
+  
   ENABLE_SET_HOME_LOCATION = True;
+  // NPCを配置するセルの検索に関連する定数
+  SERCH_EXCLUDE_VANILLA_FILES = False;  // バニラのゲームファイルを検索するかどうか
+  MAX_SERCH_FILES_COUNT = 30; // 最大プラグインファイルロード数
 
-  // 変更する値
+  // 変更する値のデフォルト値
   DEFAULT_AI_PACKAGE = $0001B217;
   DEFAULT_COMBAT_STYLE = $0003BE1B;
   DEFAULT_OUTFIT = $0009D5DF;
-  DEFAULT_FOLLOWER_VOICE = 'MaleEvenToned';
+  DEFAULT_FOLLOWER_VOICE_MALE = 'MaleEvenToned';
+  DEFAULT_FOLLOWER_VOICE_FEMALE = 'FemaleEvenToned';
   DEFAULT_PROTECTED = '1';
   DEFAULT_ESSENTIAL = '0';
 
+  // Relationshipレコードのコピー元参照用 変更禁止
   LYDIA_PLAYER_RELATIONSHIP = $00103AED;
 var
-  PlayerRef, potMarriageFac, potFollowerFac, curFollowerFac, defaultAIPackage, defaultCombatStyle, defaultOutfit : IInterface;
+  potMarriageFac, potFollowerFac, curFollowerFac, defaultAIPackage, defaultCombatStyle, defaultOutfit: IwbMainRecord;
+  fileSerachOffset: Integer;
 
 function IsMasterAEPlugin(plugin: IInterface): Boolean;
 var
@@ -62,7 +69,6 @@ end;
 function Initialize: integer;
 begin
   Result := 0;
-  PlayerRef := RecordByFormID(FileByIndex(0), $00000007, True);
   potMarriageFac := RecordByFormID(FileByIndex(0), $00019809, True);
   potFollowerFac := RecordByFormID(FileByIndex(0), $0005C84D, True);
   curFollowerFac := RecordByFormID(FileByIndex(0), $0005C84E, True);
@@ -71,6 +77,23 @@ begin
   defaultCombatStyle := RecordByFormID(FileByIndex(0), DEFAULT_COMBAT_STYLE, True);
   defaultOutfit := RecordByFormID(FileByIndex(0), DEFAULT_OUTFIT, True);
   
+  if ENABLE_SET_HOME_LOCATION then begin
+    // ファイルのロード数チェック
+    if FileCount > MAX_SERCH_FILES_COUNT then begin
+      // ファイルのロード数が多いので続行するかユーザに確認
+      AddMessage('Too many loaded files!');
+      if MessageDlg('Too many files were loaded. The script may take a long time to process. Continue?', mtConfirmation, [mbYes, mbNo], 0) = mrNo then begin
+        Result := -1;
+        Exit;
+      end;
+    end;
+    
+    // バニラゲームファイルを検索から除外するためのオフセット設定
+    if SERCH_EXCLUDE_VANILLA_FILES then
+      fileSerachOffset := 5
+    else
+      fileSerachOffset := 0;
+  end;
 end;
 
 function Process(e: IInterface): integer;
@@ -80,8 +103,7 @@ var
   existRelRec, baseNPCRecord, refCell, newCell, refRel, rel: IwbMainRecord;
   targetFile : IwbFile;
   NPCEditorID, baseNPCEditorID, relEditorID, itemType: string;
-  i, j, underscorePos, maxfile: integer;
-  SEflag: boolean;
+  i, j, underscorePos: integer;
 begin
   // NPCレコードのみ処理
   if Signature(e) <> 'NPC_' then Exit;
@@ -126,8 +148,13 @@ begin
   // ボイスタイプの設定
   if ENABLE_SET_VOICE then begin
     voice := ElementByPath(e, 'VTCK - Voice');
-    if Assigned(voice) then
-      SetElementEditValues(e, 'VTCK - Voice', DEFAULT_FOLLOWER_VOICE);
+    if not Assigned(voice) then begin
+      Add(e, 'VTCK', True);
+      if GetElementEditValues(flags, 'Flags\Female', 1) then
+        SetElementEditValues(e, 'VTCK - Voice', DEFAULT_FOLLOWER_VOICE_FEMALE)
+      else
+        SetElementEditValues(e, 'VTCK - Voice', DEFAULT_FOLLOWER_VOICE_MALE);
+    end;
   end;
 }
   // Outfit の設定
@@ -221,31 +248,22 @@ begin
     AddMessage('Added a Relationship record: ' + Name(e) + ' -> Player');
   end;
 
-  // 配置する場所を設定
+  // リプレイス先NPCの配置場所を取得し、同じ場所に配置する
   if ENABLE_SET_HOME_LOCATION then begin
-    // リプレイス先NPCの配置場所を取得し、同じ場所に配置する
-    // TODO:バニラ以外のリプレイサーの初期配置の方法をどうにかしたい
-    // ゲーム本体のバージョンに応じて走査するバニラファイルの数を設定
-    SEflag := false;
-    if SEflag then
-      maxfile := 4
-    else
-      maxfile := 8;
-    
     // EditorIDから本来のリプレイス先となるNPCのEditorIDを取得
     underscorePos := LastDelimiter('_', NPCEditorID);
     baseNPCEditorID := Copy(NPCEditorID, underscorePos + 1, Length(NPCEditorID) - underscorePos);
     //AddMessage('Base NPC Editor ID: ' + baseNPCEditorID);
     
-    // バニラファイルすべてを走査する
-    for i := 0 to maxfile do
+    // ファイル走査ループ
+    for i := fileSerachOffset to FileCount - 2 do
     begin
-      // Update, SuvivalMode, Curiosは走査から除外
-      if i = 1 or i = 6 or i = 7 then
+      // Updateは走査から除外
+      if i = 1 then
         continue;
       // 走査対象をNPCグループレコードに絞る
       targetFile := FileByLoadOrder(i);
-      // AddMessage('Target file name: ' + GetFileName(targetFile));
+       AddMessage('Target file name: ' + GetFileName(targetFile));
       npcRecordGroup := GroupBySignature(targetFile, 'NPC_');
       
       // 本来リプレイスしていたNPCレコードを取得
