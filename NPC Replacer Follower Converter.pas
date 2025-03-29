@@ -5,66 +5,40 @@ implementation
 uses xEditAPI, SysUtils, StrUtils, Windows;
 
 const
-  // 各変更のオン/オフ
+  // Turn each change on/off
   ENABLE_SET_VMADS = True;
   ENABLE_SET_AI_PACKAGES = True;
   ENABLE_SET_COMBAT_STYLE = True;
+  ENABLE_SET_NAME = True;
   ENABLE_SET_OUTFIT = True;
   ENABLE_SET_INVETORY = True;
   ENABLE_SET_VOICE = True;
   ENABLE_SET_ESSENTIAL_PROTECTED = True;
   ENABLE_SET_FACTIONS = True;
-  
   ENABLE_SET_HOME_LOCATION = True;
-  // NPCを配置するセルの検索に関連する定数
-  SERCH_EXCLUDE_VANILLA_FILES = False;  // バニラのゲームファイルを検索するかどうか
-  MAX_SERCH_FILES_COUNT = 30; // 最大プラグインファイルロード数
+  
+  // Constants related to searching for cells to place NPCs
+  SERCH_EXCLUDE_VANILLA_FILES = False;  // Whether to search for vanilla game files
+  MAX_SERCH_FILES_COUNT = 30;           // Maximum number of plugin files loaded
 
-  // 変更する値のデフォルト値
-  DEFAULT_AI_PACKAGE = $0001B217;
-  DEFAULT_COMBAT_STYLE = $0003BE1B;
-  DEFAULT_OUTFIT = $0009D5DF;
-  DEFAULT_FOLLOWER_VOICE_MALE = 'MaleEvenToned';
-  DEFAULT_FOLLOWER_VOICE_FEMALE = 'FemaleEvenToned';
+  // Default value for each change. Specify by Form ID
+  DEFAULT_WEAPON_ITEM = $0001397E;            // 0001397E Iron Dagger
+  DEFAULT_AI_PACKAGE = $0001B217;             // 0001B217 DefaultSandboxEditorLocation512
+  DEFAULT_COMBAT_STYLE = $0003BE1B;           // 0003BE1B csHumanMeleeLvl1
+  DEFAULT_OUTFIT = $0009D5DF;                 // 0009D5DF FarmClothesOutfit04
+  DEFAULT_FOLLOWER_VOICE_MALE = $00013AD2;    // 00013AD2 MaleEvenToned
+  DEFAULT_FOLLOWER_VOICE_FEMALE = $00013ADD;  // 00013ADD FemaleEvenToned
+  
+ // Set the Protected/Essential flag. Only one of them can be turned on.
   DEFAULT_PROTECTED = '1';
   DEFAULT_ESSENTIAL = '0';
 
-  // Relationshipレコードのコピー元参照用 変更禁止
+  // Used to reference the source of a Relationship record. Change prohibited
   LYDIA_PLAYER_RELATIONSHIP = $00103AED;
 var
-  potMarriageFac, potFollowerFac, curFollowerFac, defaultAIPackage, defaultCombatStyle, defaultOutfit: IwbMainRecord;
+  potMarriageFac, potFollowerFac, curFollowerFac: IwbMainRecord;
+  defaultWeaponItem, defaultAIPackage, defaultCombatStyle, defaultOutfit, defaultFollowerVoiceMale, defaultFollowerVoiceFemale: IwbMainRecord;
   fileSerachOffset: Integer;
-
-function IsMasterAEPlugin(plugin: IInterface): Boolean;
-var
-  PluginName  : String;
-Begin
-  PluginName := GetFileName(plugin);
-  Result := (CompareStr(PluginName, 'Skyrim.esm') = 0) or (CompareStr(PluginName, 'Update.esm') = 0) or (CompareStr(PluginName, 'Dawnguard.esm') = 0) or (CompareStr(PluginName, 'HearthFires.esm') = 0) or (CompareStr(PluginName, 'Dragonborn.esm') = 0) or (CompareStr(PluginName, 'ccBGSSSE001-Fish.esm') = 0) or (CompareStr(PluginName, 'ccQDRSSE001-SurvivalMode.esl') = 0) or (CompareStr(PluginName, 'ccBGSSSE037-Curios.esl') = 0) or (CompareStr(PluginName, 'ccBGSSSE025-AdvDSGS.esm') = 0) or (CompareStr(PluginName, '_ResourcePack.esl') = 0);
-End;
-
-function GetNPCRecordCount(aFile: IwbFile): Cardinal;
-var
-  i, count: Cardinal;
-  rec:  IInterface;
-  group: IwbGroupRecord;
-begin
-  count := 0;
-  group := GroupBySignature(aFile, 'NPC_');
-  
-  // グループが存在する場合
-  if Assigned(group) then begin
-    // グループ内のレコード数を取得
-    for i := 0 to ElementCount(group) - 1 do begin
-      rec := ElementByIndex(group, i);
-      // レコードが 'NPC_' シグネチャを持つか確認
-      if Signature(rec) = 'NPC_' then
-        Inc(count);
-    end;
-  end;
-  
-  Result := count;
-end;
 
 function Initialize: integer;
 begin
@@ -73,14 +47,17 @@ begin
   potFollowerFac := RecordByFormID(FileByIndex(0), $0005C84D, True);
   curFollowerFac := RecordByFormID(FileByIndex(0), $0005C84E, True);
   
+  defaultWeaponItem := RecordByFormID(FileByIndex(0), DEFAULT_WEAPON_ITEM, True);
   defaultAIPackage := RecordByFormID(FileByIndex(0), DEFAULT_AI_PACKAGE, True);
   defaultCombatStyle := RecordByFormID(FileByIndex(0), DEFAULT_COMBAT_STYLE, True);
   defaultOutfit := RecordByFormID(FileByIndex(0), DEFAULT_OUTFIT, True);
+  defaultFollowerVoiceMale := RecordByFormID(FileByIndex(0), DEFAULT_FOLLOWER_VOICE_MALE, True);
+  defaultFollowerVoiceFemale := RecordByFormID(FileByIndex(0), DEFAULT_FOLLOWER_VOICE_FEMALE, True);
   
   if ENABLE_SET_HOME_LOCATION then begin
-    // ファイルのロード数チェック
+    // Check number of files loaded
     if FileCount > MAX_SERCH_FILES_COUNT then begin
-      // ファイルのロード数が多いので続行するかユーザに確認
+      // Ask user if they want to continue as there are too many files loaded
       AddMessage('Too many loaded files!');
       if MessageDlg('Too many files were loaded. The script may take a long time to process. Continue?', mtConfirmation, [mbYes, mbNo], 0) = mrNo then begin
         Result := -1;
@@ -88,7 +65,7 @@ begin
       end;
     end;
     
-    // バニラゲームファイルを検索から除外するためのオフセット設定
+    // Set offset to exclude vanilla game files from search
     if SERCH_EXCLUDE_VANILLA_FILES then
       fileSerachOffset := 5
     else
@@ -98,28 +75,33 @@ end;
 
 function Process(e: IInterface): integer;
 var
-  vmad, factions, newFaction, aiPackages, newAiPackage, combatStyle, voice, outfit, inventory, item, itemRecord, flags: IInterface;
+  vmad, factions, newFaction, aiPackages, newAiPackage, combatStyle, voice, outfit, inventory, newItem, itemRecord, flags: IInterface;
   relrecordGroup, npcRecordGroup: IwbGroupRecord;
   existRelRec, baseNPCRecord, refCell, newCell, refRel, rel: IwbMainRecord;
   targetFile : IwbFile;
-  NPCEditorID, baseNPCEditorID, relEditorID, itemType: string;
+  NPCEditorID, baseNPCEditorID, npcName, relEditorID, itemType: string;
   i, j, underscorePos: integer;
 begin
-  // NPCレコードのみ処理
+  // Process only NPC records
   if Signature(e) <> 'NPC_' then Exit;
 
   AddMessage('Modifying NPC: ' + Name(e));
 
   NPCEditorID := GetElementEditValues(e, 'EDID');
   
-  // クエストスクリプトの削除
+  // Get the EditorID of the original NPC to be replaced from the EditorID
+  underscorePos := LastDelimiter('_', NPCEditorID);
+  baseNPCEditorID := Copy(NPCEditorID, underscorePos + 1, Length(NPCEditorID) - underscorePos);
+  //AddMessage('Base NPC Editor ID: ' + baseNPCEditorID);
+    
+  // Delete quest script
   if ENABLE_SET_VMADS then begin
     vmad := ElementBySignature(e, 'VMAD');
     if Assigned(vmad) then
       RemoveElement(e, 'VMAD');
   end;
 
-  // AI パッケージの修正
+  // Set AI package
   if ENABLE_SET_AI_PACKAGES then begin
     aiPackages := ElementByPath(e, 'Packages');
     if Assigned(aiPackages) then
@@ -132,32 +114,41 @@ begin
     SetEditValue(newAiPackage, IntToHex(GetLoadOrderFormID(defaultAIPackage), 8));
   end;
 
-  // combat styleの設定
+  // Set Combat Style
   if ENABLE_SET_COMBAT_STYLE then begin
     if GetElementEditValues(e, 'ZNAM') = '' then
       begin
-        // Combat Styleエレメントを取得または作成
+        // Get or create Combat Style element
         if not Assigned(ElementByPath(e, 'ZNAM')) then
           Add(e, 'ZNAM', True);
-
-        // Combat Styleを設定
         SetElementEditValues(e, 'ZNAM', IntToHex(GetLoadOrderFormID(defaultCombatStyle), 8));
       end
   end;
-{
-  // ボイスタイプの設定
+  
+  // Set name
+  if ENABLE_SET_NAME then begin
+    npcName := GetElementEditValues(e, 'FULL');
+    // If name is blank, assign it the Editor ID to replace
+    if npcName = '' then
+      npcName := baseNPCEditorID;
+    // Add prefix after default name
+    npcName := npcName + ' [' + Copy(NPCEditorID, 0, underscorePos - 1) + ']';
+    SetElementEditValues(e, 'FULL', npcName);
+  end;
+
+  // Set voice type
   if ENABLE_SET_VOICE then begin
     voice := ElementByPath(e, 'VTCK - Voice');
     if not Assigned(voice) then begin
       Add(e, 'VTCK', True);
       if GetElementEditValues(flags, 'Flags\Female', 1) then
-        SetElementEditValues(e, 'VTCK - Voice', DEFAULT_FOLLOWER_VOICE_FEMALE)
+        SetElementEditValues(e, 'VTCK - Voice', IntToHex(GetLoadOrderFormID(defaultFollowerVoiceFemale), 8))
       else
-        SetElementEditValues(e, 'VTCK - Voice', DEFAULT_FOLLOWER_VOICE_MALE);
+        SetElementEditValues(e, 'VTCK - Voice', IntToHex(GetLoadOrderFormID(defaultFollowerVoiceMale), 8));
     end;
   end;
-}
-  // Outfit の設定
+
+  // Set Outfit
   if ENABLE_SET_OUTFIT then begin
     outfit := ElementBySignature(e, 'DOFT');
     if not Assigned(outfit) then
@@ -165,24 +156,35 @@ begin
     SetElementEditValues(e, 'DOFT', IntToHex(GetLoadOrderFormID(defaultOutfit), 8));
   end;
   
-  // Itemsの設定
+  // Set Items
   if ENABLE_SET_INVETORY then begin
-    // インベントリリストを取得
+    // Get inventory list
     inventory := ElementByPath(e, 'Items');
+    // Clear inventory
     if Assigned(inventory) then
       RemoveElement(e, 'Items');
+    // Re-add inventory
+    inventory := Add(e, 'Items', True);
+    RemoveElement(inventory, ElementByIndex(inventory, 0));
+    // Set weapon item
+    newItem := ElementAssign(inventory, HighInteger, nil, False);
+    SetElementEditValues(newItem, 'CNTO - Item\Item', Name(defaultWeaponItem));
+    SetElementEditValues(newItem, 'CNTO - Item\Count', '1');
   end;
   
-  // Flagの設定
+  // Set Flag
   flags := ElementByPath(e, 'ACBS - Configuration');
   if Assigned(flags) then begin
+    SetElementEditValues(flags, 'Flags\Respown', 0);
     SetElementEditValues(flags, 'Flags\Unique', 1);
     SetElementEditValues(flags, 'Flags\looped script?', 0);
     SetElementEditValues(flags, 'Flags\PC Level Mult', 1);
     SetElementEditValues(flags, 'Flags\Auto-calc stats', 1);
+    SetElementEditValues(flags, 'Flags\Opposite Gender Anims', 0);
+    SetElementEditValues(flags, 'Flags\looped audio?', 0);
   end;
   
-  // Essential / Protected の設定
+  // Essential / Protected settings
   if ENABLE_SET_ESSENTIAL_PROTECTED then begin
     if Assigned(flags) then begin
       SetElementEditValues(flags, 'Flags\Essential', DEFAULT_ESSENTIAL);
@@ -191,41 +193,41 @@ begin
   end;
   
   
-  // Faction の修正
+  // Modify Faction
   if ENABLE_SET_FACTIONS then begin
-    // Factionsエレメントが存在していた場合、削除してFactionsエレメントをクリアにする
+    // If a Factions element exists, delete it and clear the Factions element
     factions := ElementByPath(e, 'Factions');
     if Assigned(factions) then
       RemoveElement(e, 'Factions');
     
-    // Factionsエレメントを新規追加、自動で追加されたnull Factionを削除
+    // Add a new Factions element and delete the null faction that was automatically added
     factions := Add(e, 'Factions', True);
     RemoveElement(factions, ElementByIndex(factions, 0));
     
-    // PotentialMarriageFactionを追加
+    // Add PotentialMarriageFaction
     newFaction := ElementAssign(factions, HighInteger, nil, False);
     SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(potMarriageFac), 8));
     
-    // PotentialFollowerFactionを追加
+    // Add PotentialFollowerFaction
     newFaction := ElementAssign(factions, HighInteger, nil, False);
     SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(potFollowerFac), 8));
     
-    // CurrentFollowerFactionを追加、ランクを-1に設定
+    // Add CurrentFollowerFaction, set rank to -1
     newFaction := ElementAssign(factions, HighInteger, nil, False);
     SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(curFollowerFac), 8));
     SetElementEditValues(newFaction, 'Rank', '-1');
   end;
 
-  // Relationshipレコードを追加
-  // 選択中のNPCに関連するRelationshipレコードがすでに存在していたら何もしない
+  // Add Relationship record
   relEditorID := NPCEditorID + 'Rel';
   relRecordGroup := GroupBySignature(GetFile(e), 'RELA');
   existRelRec := MainRecordByEditorID(relRecordGroup, relEditorID);
+  // Do nothing if a Relationship record related to the selected NPC already exists
   if Assigned(existRelRec) then
       AddMessage('A Relationship record for this NPC already exists.')
   else begin
-    // 普通にレコードを追加できないので、Skyrim.esm内のRelationshipレコードをコピーする
-    // HousecarlWhiterunPlayerRelationshipをコピー元として参照する
+    // Since we can't add a record normally, we copy the Relationship record in Skyrim.esm
+    // Refer to HousecarlWhiterunPlayerRelationship as the source to copy
     refRel := RecordByFormID(FileByIndex(0), LYDIA_PLAYER_RELATIONSHIP, True);
     rel := wbCopyElementToFile(refRel, GetFile(e), True, True);
     if not Assigned(rel) then
@@ -235,51 +237,46 @@ begin
       Exit;
     end;
     
-    // RelationshipレコードのEditor IDをNPCレコードのEditor IDをベースに変更
+    // Change the Editor ID of the Relationship record based on the Editor ID of the NPC record
     SetElementEditValues(rel, 'EDID', relEditorID);
 
-    // 親（Parent）を設定
+    // Set the parent.
     SetElementEditValues(rel, 'DATA\Parent', IntToHex(GetLoadOrderFormID(e), 8));
 
-    // 関係性のランクを設定（4: Acquaintance, 2: Confidant, 3: Friend, 1: Ally, 0: Lover）
-    // どうやらゲーム内の数値とレコードで設定する数値が異なっているようだ。ややこしい。
+    // Set the relationship rank (4: Acquaintance, 2: Confidant, 3: Friend, 1: Ally, 0: Lover).
+    // It seems like the numbers in the game and the numbers set in the record are different. Confusing.
     SetElementEditValues(rel, 'DATA\Rank', '3'); // 3はFriendを示す
 
     AddMessage('Added a Relationship record: ' + Name(e) + ' -> Player');
   end;
 
-  // リプレイス先NPCの配置場所を取得し、同じ場所に配置する
+  // Get the location of the NPC to be replaced and place it in the same location
   if ENABLE_SET_HOME_LOCATION then begin
-    // EditorIDから本来のリプレイス先となるNPCのEditorIDを取得
-    underscorePos := LastDelimiter('_', NPCEditorID);
-    baseNPCEditorID := Copy(NPCEditorID, underscorePos + 1, Length(NPCEditorID) - underscorePos);
-    //AddMessage('Base NPC Editor ID: ' + baseNPCEditorID);
-    
-    // ファイル走査ループ
+    // File scanning loop
     for i := fileSerachOffset to FileCount - 2 do
     begin
-      // Updateは走査から除外
+      // Exclude Update from scanning
       if i = 1 then
         continue;
-      // 走査対象をNPCグループレコードに絞る
+      // Narrow the scanning target to NPC group records
       targetFile := FileByLoadOrder(i);
-       AddMessage('Target file name: ' + GetFileName(targetFile));
+       //AddMessage('Serching target file name: ' + GetFileName(targetFile));
       npcRecordGroup := GroupBySignature(targetFile, 'NPC_');
       
-      // 本来リプレイスしていたNPCレコードを取得
+      // Get the NPC record that was originally replaced
       baseNPCRecord := MainRecordByEditorID(npcRecordGroup, baseNPCEditorID);
       
       for j := 0 to Pred(ReferencedByCount(baseNPCRecord)) do
       begin
-        // リプレイスしていたNPCレコードを参照しているレコードを走査
+        // Scan for records that reference the replaced NPC record
         refCell := ReferencedByIndex(baseNPCRecord, j);
         //AddMessage(IntToStr(j) + '. RefernceRecord Signature: ' + Signature(refCell));
-        // ACHR(NPC配置)レコードを検出
+        // Detect ACHR (NPC placement) record
         if Signature(refCell) = 'ACHR' then
         begin
-          // 検出したレコードをコピー
+          // Copy the found record
           newCell := wbCopyElementToFile(refCell, GetFile(e), True, True);
-          // セルのコピーに成功したら色々変更して次のNPCレコードへ
+          // If the cell copy is successful, make various changes and move on to the next NPC record
           if Assigned(newCell) then begin
             SetIsPersistent(newCell, true);
             SetIsInitiallyDisabled(newCell, false);
