@@ -6,16 +6,22 @@ uses xEditAPI, SysUtils, StrUtils, Windows;
 
 const
   // Turn each change on/off
+  DISABLE_USE_TRAITS_TEMPLATE_NPC = True;
+  
   ENABLE_SET_VMADS = True;
   ENABLE_SET_AI_PACKAGES = True;
   ENABLE_SET_COMBAT_STYLE = True;
   ENABLE_SET_NAME = True;
   ENABLE_SET_OUTFIT = True;
   ENABLE_SET_INVETORY = True;
+  ENABLE_SET_FLAGS = True;
   ENABLE_SET_VOICE = True;
   ENABLE_SET_ESSENTIAL_PROTECTED = True;
   ENABLE_SET_FACTIONS = True;
-  ENABLE_SET_HOME_LOCATION = True;
+  
+  ENABLE_ADD_PERKS = True;
+  ENABLE_ADD_RELATIONSHIP = True;
+  ENABLE_ADD_HOME_LOCATION = True;
   
   // Constants related to searching for cells to place NPCs
   SERCH_EXCLUDE_VANILLA_FILES = False;  // Whether to search for vanilla game files
@@ -34,18 +40,24 @@ const
   DEFAULT_ESSENTIAL = '0';
 
   // Used to reference the source of a Relationship record. Change prohibited
+  POTENTIAL_MARRIAGE_FACTION = $00019809;
+  POTENTIAL_FOLLOWER_FACTION = $0005C84D;
+  CURRENT_FOLLOWER_FACTION = $0005C84E;
   LYDIA_PLAYER_RELATIONSHIP = $00103AED;
+  PERK_LIGHT_FOOT = $0005820C;
 var
   potMarriageFac, potFollowerFac, curFollowerFac: IwbMainRecord;
-  defaultWeaponItem, defaultAIPackage, defaultCombatStyle, defaultOutfit, defaultFollowerVoiceMale, defaultFollowerVoiceFemale: IwbMainRecord;
-  fileSerachOffset: Integer;
+  defaultWeaponItem, defaultAIPackage, defaultCombatStyle, defaultOutfit, defaultFollowerVoiceMale, defaultFollowerVoiceFemale, addPerk: IwbMainRecord;
+  fileSearchOffset: Integer;
 
 function Initialize: integer;
 begin
   Result := 0;
-  potMarriageFac := RecordByFormID(FileByIndex(0), $00019809, True);
-  potFollowerFac := RecordByFormID(FileByIndex(0), $0005C84D, True);
-  curFollowerFac := RecordByFormID(FileByIndex(0), $0005C84E, True);
+  
+  // Set record variables
+  potMarriageFac := RecordByFormID(FileByIndex(0), POTENTIAL_MARRIAGE_FACTION, True);
+  potFollowerFac := RecordByFormID(FileByIndex(0), POTENTIAL_FOLLOWER_FACTION, True);
+  curFollowerFac := RecordByFormID(FileByIndex(0), CURRENT_FOLLOWER_FACTION, True);
   
   defaultWeaponItem := RecordByFormID(FileByIndex(0), DEFAULT_WEAPON_ITEM, True);
   defaultAIPackage := RecordByFormID(FileByIndex(0), DEFAULT_AI_PACKAGE, True);
@@ -54,7 +66,9 @@ begin
   defaultFollowerVoiceMale := RecordByFormID(FileByIndex(0), DEFAULT_FOLLOWER_VOICE_MALE, True);
   defaultFollowerVoiceFemale := RecordByFormID(FileByIndex(0), DEFAULT_FOLLOWER_VOICE_FEMALE, True);
   
-  if ENABLE_SET_HOME_LOCATION then begin
+  addPerk := RecordByFormID(FileByIndex(0), PERK_LIGHT_FOOT, True);
+  
+  if ENABLE_ADD_HOME_LOCATION then begin
     // Check number of files loaded
     if FileCount > MAX_SERCH_FILES_COUNT then begin
       // Ask user if they want to continue as there are too many files loaded
@@ -67,25 +81,34 @@ begin
     
     // Set offset to exclude vanilla game files from search
     if SERCH_EXCLUDE_VANILLA_FILES then
-      fileSerachOffset := 5
+      fileSearchOffset := 5
     else
-      fileSerachOffset := 0;
+      fileSearchOffset := 0;
   end;
 end;
 
 function Process(e: IInterface): integer;
 var
-  vmad, factions, newFaction, aiPackages, newAiPackage, combatStyle, voice, outfit, inventory, newItem, itemRecord, flags: IInterface;
+  vmad, factions, newFaction, aiPackages, newAiPackage, perks, newPerk, combatStyle, voice, outfit, inventory, newItem, itemRecord, flags: IInterface;
   relrecordGroup, npcRecordGroup: IwbGroupRecord;
-  existRelRec, baseNPCRecord, refCell, newCell, refRel, rel: IwbMainRecord;
-  targetFile : IwbFile;
+  existRelRec, baseNPCRecord, refCell, newCell, baseRel, rel: IwbMainRecord;
+  baseFile : IwbFile;
   NPCEditorID, baseNPCEditorID, npcName, relEditorID, itemType: string;
-  i, j, underscorePos: integer;
+  i, j, underscorePos, useTraitsFlag: integer;
 begin
   // Process only NPC records
   if Signature(e) <> 'NPC_' then Exit;
 
-  AddMessage('Modifying NPC: ' + Name(e));
+  AddMessage('Modifying NPC: ' + EditorID(e));
+  
+  // Depending on the option, NPCs with the UseTraits flag will skip processing.
+  if DISABLE_USE_TRAITS_TEMPLATE_NPC then begin
+    useTraitsFlag := GetElementNativeValues(ElementBySignature(e, 'ACBS'), 'Template Flags');
+    if (useTraitsFlag and $01) <> 0 then begin
+      AddMessage('This NPC has the Use Traits flag set. Skip processing.');
+      Exit;
+    end;
+  end;
 
   NPCEditorID := GetElementEditValues(e, 'EDID');
   
@@ -173,15 +196,17 @@ begin
   end;
   
   // Set Flag
-  flags := ElementByPath(e, 'ACBS - Configuration');
-  if Assigned(flags) then begin
-    SetElementEditValues(flags, 'Flags\Respown', 0);
-    SetElementEditValues(flags, 'Flags\Unique', 1);
-    SetElementEditValues(flags, 'Flags\looped script?', 0);
-    SetElementEditValues(flags, 'Flags\PC Level Mult', 1);
-    SetElementEditValues(flags, 'Flags\Auto-calc stats', 1);
-    SetElementEditValues(flags, 'Flags\Opposite Gender Anims', 0);
-    SetElementEditValues(flags, 'Flags\looped audio?', 0);
+  if ENABLE_SET_FLAGS then begin
+    flags := ElementByPath(e, 'ACBS - Configuration');
+    if Assigned(flags) then begin
+      SetElementEditValues(flags, 'Flags\Respown', 0);
+      SetElementEditValues(flags, 'Flags\Unique', 1);
+      SetElementEditValues(flags, 'Flags\looped script?', 0);
+      SetElementEditValues(flags, 'Flags\PC Level Mult', 1);
+      SetElementEditValues(flags, 'Flags\Auto-calc stats', 1);
+      SetElementEditValues(flags, 'Flags\Opposite Gender Anims', 0);
+      SetElementEditValues(flags, 'Flags\looped audio?', 0);
+    end;
   end;
   
   // Essential / Protected settings
@@ -217,51 +242,64 @@ begin
     SetElementEditValues(newFaction, 'Faction', IntToHex(GetLoadOrderFormID(curFollowerFac), 8));
     SetElementEditValues(newFaction, 'Rank', '-1');
   end;
+  
+  // Add Perks
+  if ENABLE_ADD_PERKS then begin
+    perks := ElementByPath(e, 'Perks');
+    if not Assigned(perks) then begin
+      perks := Add(e, 'Perks', True);
+      RemoveElement(perks, ElementByIndex(perks, 0));
+    end;
+    newPerk := ElementAssign(perks, HighInteger, nil, False);
+    SetElementEditValues(newPerk, 'Perk', IntToHex(GetLoadOrderFormID(addPerk), 8));
+  end;
 
   // Add Relationship record
-  relEditorID := NPCEditorID + 'Rel';
-  relRecordGroup := GroupBySignature(GetFile(e), 'RELA');
-  existRelRec := MainRecordByEditorID(relRecordGroup, relEditorID);
-  // Do nothing if a Relationship record related to the selected NPC already exists
-  if Assigned(existRelRec) then
-      AddMessage('A Relationship record for this NPC already exists.')
-  else begin
-    // Since we can't add a record normally, we copy the Relationship record in Skyrim.esm
-    // Refer to HousecarlWhiterunPlayerRelationship as the source to copy
-    refRel := RecordByFormID(FileByIndex(0), LYDIA_PLAYER_RELATIONSHIP, True);
-    rel := wbCopyElementToFile(refRel, GetFile(e), True, True);
-    if not Assigned(rel) then
-    begin
-      AddMessage('Failed to add Relationship record.');
-      Result := 1;
-      Exit;
+  if ENABLE_ADD_RELATIONSHIP then begin
+    relEditorID := NPCEditorID + 'Rel';
+    relRecordGroup := GroupBySignature(GetFile(e), 'RELA');
+    existRelRec := MainRecordByEditorID(relRecordGroup, relEditorID);
+    // Do nothing if a Relationship record related to the selected NPC already exists
+    if Assigned(existRelRec) then
+        AddMessage('A Relationship record for this NPC already exists.')
+    else begin
+      // Since we can't add a record normally, we copy the Relationship record in Skyrim.esm
+      // Refer to HousecarlWhiterunPlayerRelationship as the source to copy
+      baseRel := RecordByFormID(FileByIndex(0), LYDIA_PLAYER_RELATIONSHIP, True);
+      rel := wbCopyElementToFile(baseRel, GetFile(e), True, True);
+      if not Assigned(rel) then
+      begin
+        AddMessage('Failed to add Relationship record.');
+        Result := 1;
+        Exit;
+      end;
+      
+      // Change the Editor ID of the Relationship record based on the Editor ID of the NPC record
+      SetElementEditValues(rel, 'EDID', relEditorID);
+
+      // Set the parent.
+      SetElementEditValues(rel, 'DATA\Parent', IntToHex(GetLoadOrderFormID(e), 8));
+
+      // Set the relationship rank (4: Acquaintance, 2: Confidant, 3: Friend, 1: Ally, 0: Lover).
+      // It seems like the numbers in the game and the numbers set in the record are different. Confusing.
+      SetElementEditValues(rel, 'DATA\Rank', '3'); // 3はFriendを示す
+
+      AddMessage('Added a Relationship record: ' + Name(e) + ' -> Player');
     end;
-    
-    // Change the Editor ID of the Relationship record based on the Editor ID of the NPC record
-    SetElementEditValues(rel, 'EDID', relEditorID);
-
-    // Set the parent.
-    SetElementEditValues(rel, 'DATA\Parent', IntToHex(GetLoadOrderFormID(e), 8));
-
-    // Set the relationship rank (4: Acquaintance, 2: Confidant, 3: Friend, 1: Ally, 0: Lover).
-    // It seems like the numbers in the game and the numbers set in the record are different. Confusing.
-    SetElementEditValues(rel, 'DATA\Rank', '3'); // 3はFriendを示す
-
-    AddMessage('Added a Relationship record: ' + Name(e) + ' -> Player');
   end;
 
   // Get the location of the NPC to be replaced and place it in the same location
-  if ENABLE_SET_HOME_LOCATION then begin
+  if ENABLE_ADD_HOME_LOCATION then begin
     // File scanning loop
-    for i := fileSerachOffset to FileCount - 2 do
+    for i := fileSearchOffset to FileCount - 2 do
     begin
       // Exclude Update from scanning
       if i = 1 then
         continue;
       // Narrow the scanning target to NPC group records
-      targetFile := FileByLoadOrder(i);
-       //AddMessage('Serching target file name: ' + GetFileName(targetFile));
-      npcRecordGroup := GroupBySignature(targetFile, 'NPC_');
+      baseFile := FileByLoadOrder(i);
+       //AddMessage('Serching target file name: ' + GetFileName(baseFile));
+      npcRecordGroup := GroupBySignature(baseFile, 'NPC_');
       
       // Get the NPC record that was originally replaced
       baseNPCRecord := MainRecordByEditorID(npcRecordGroup, baseNPCEditorID);
