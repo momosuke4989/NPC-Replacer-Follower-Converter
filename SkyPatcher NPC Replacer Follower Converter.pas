@@ -49,6 +49,37 @@ var
   potMarriageFac, potFollowerFac, curFollowerFac: IwbMainRecord;
   defaultWeaponItem, defaultAIPackage, defaultCombatStyle, defaultOutfit, defaultFollowerVoiceMale, defaultFollowerVoiceFemale, addPerk: IwbMainRecord;
   fileSearchOffset: Integer;
+  newNPCPlaced : boolean;
+
+function FindNPCPlacedRecord(e, baseNPCRecord: IwbMainRecord;): boolean;
+var
+  refCell, newCell: IwbMainRecord;
+  i: integer;
+begin
+  Result := false;
+  for i := 0 to Pred(ReferencedByCount(baseNPCRecord)) do begin
+    // Scan for records that reference the replaced NPC record
+    refCell := ReferencedByIndex(baseNPCRecord, i);
+    //AddMessage(IntToStr(i) + '. RefernceRecord Signature: ' + Signature(refCell));
+    // Detect ACHR (NPC placement) record
+    if Signature(refCell) = 'ACHR' then begin
+      // Copy the found record
+      newCell := wbCopyElementToFile(refCell, GetFile(e), True, True);
+      // If the cell copy is successful, make various changes and move on to the next NPC record
+      if Assigned(newCell) then begin
+        SetIsPersistent(newCell, true);
+        SetIsInitiallyDisabled(newCell, false);
+        SetElementEditValues(newCell, 'EDID', EditorID(e) + 'Ref');
+        SetEditValue(ElementByPath(newCell, 'NAME'), GetEditValue(e));
+        AddMessage(Format('Copied Cell NPC Editor ID: %s, Record Editor ID: %s', [GetElementEditValues(newCell, 'NAME'), GetElementEditValues(newCell, 'EDID')]));
+        Result := true;
+        Exit;
+      end
+      else
+        AddMessage('Failed to copy cell.');
+    end;
+  end;
+end;
 
 function Initialize: integer;
 begin
@@ -89,12 +120,12 @@ end;
 
 function Process(e: IInterface): integer;
 var
-  vmad, factions, newFaction, aiPackages, newAiPackage, perks, newPerk, combatStyle, voice, outfit, inventory, newItem, itemRecord, flags: IInterface;
+  vmad, factions, newFaction, aiPackages, newAiPackage, perks, newPerk, combatStyle, voiceElement, outfit, inventory, newItem, itemRecord, flags: IInterface;
   relrecordGroup, npcRecordGroup: IwbGroupRecord;
   existRelRec, baseNPCRecord, refCell, newCell, baseRel, rel: IwbMainRecord;
   baseFile : IwbFile;
-  NPCEditorID, baseNPCEditorID, npcName, relEditorID, itemType: string;
-  i, j, underscorePos, useTraitsFlag: integer;
+  NPCEditorID, baseNPCEditorID, npcName, relEditorID, itemType, voice: string;
+  i, underscorePos, useTraitsFlag: integer;
 begin
   // Process only NPC records
   if Signature(e) <> 'NPC_' then Exit;
@@ -161,13 +192,13 @@ begin
 
   // Set voice type
   if ENABLE_SET_VOICE then begin
-    voice := ElementByPath(e, 'VTCK - Voice');
-    if not Assigned(voice) then begin
-      Add(e, 'VTCK', True);
-      if GetElementEditValues(flags, 'Flags\Female', 1) then
-        SetElementEditValues(e, 'VTCK - Voice', IntToHex(GetLoadOrderFormID(defaultFollowerVoiceFemale), 8))
+    voice := GetElementEditValues(e, 'VTCK');
+    if voice = '' then begin
+      voiceElement := Add(e, 'VTCK', True);
+      if GetElementEditValues(e, 'Flags\Female') = 1 then
+        SetEditValues(voiceElement, IntToHex(GetLoadOrderFormID(defaultFollowerVoiceFemale), 8))
       else
-        SetElementEditValues(e, 'VTCK - Voice', IntToHex(GetLoadOrderFormID(defaultFollowerVoiceMale), 8));
+        SetEditValues(voiceElement, IntToHex(GetLoadOrderFormID(defaultFollowerVoiceMale), 8));
     end;
   end;
 
@@ -282,7 +313,7 @@ begin
 
       // Set the relationship rank (4: Acquaintance, 2: Confidant, 3: Friend, 1: Ally, 0: Lover).
       // It seems like the numbers in the game and the numbers set in the record are different. Confusing.
-      SetElementEditValues(rel, 'DATA\Rank', '3'); // 3はFriendを示す
+      SetElementEditValues(rel, 'DATA\Rank', '3'); // Friend is 3
 
       AddMessage('Added a Relationship record: ' + Name(e) + ' -> Player');
     end;
@@ -290,9 +321,9 @@ begin
 
   // Get the location of the NPC to be replaced and place it in the same location
   if ENABLE_ADD_HOME_LOCATION then begin
+    newNPCPlaced := false;
     // File scanning loop
-    for i := fileSearchOffset to FileCount - 2 do
-    begin
+    for i := fileSearchOffset to FileCount - 2 do begin
       // Exclude Update from scanning
       if i = 1 then
         continue;
@@ -304,30 +335,16 @@ begin
       // Get the NPC record that was originally replaced
       baseNPCRecord := MainRecordByEditorID(npcRecordGroup, baseNPCEditorID);
       
-      for j := 0 to Pred(ReferencedByCount(baseNPCRecord)) do
-      begin
-        // Scan for records that reference the replaced NPC record
-        refCell := ReferencedByIndex(baseNPCRecord, j);
-        //AddMessage(IntToStr(j) + '. RefernceRecord Signature: ' + Signature(refCell));
-        // Detect ACHR (NPC placement) record
-        if Signature(refCell) = 'ACHR' then
-        begin
-          // Copy the found record
-          newCell := wbCopyElementToFile(refCell, GetFile(e), True, True);
-          // If the cell copy is successful, make various changes and move on to the next NPC record
-          if Assigned(newCell) then begin
-            SetIsPersistent(newCell, true);
-            SetIsInitiallyDisabled(newCell, false);
-            SetElementEditValues(newCell, 'EDID', EditorID(e) + 'Ref');
-            SetEditValue(ElementByPath(newCell, 'NAME'), GetEditValue(e));
-            AddMessage(Format('Copied Cell NPC Editor ID: %s, Record Editor ID: %s', [GetElementEditValues(newCell, 'NAME'), GetElementEditValues(newCell, 'EDID')]));
-            Exit;
-          end
-          else
-            AddMessage('Failed to copy cell.');
-        end;
+      if Assigned(baseNPCRecord) then begin
+        newNPCPlaced := FindNPCPlacedRecord(e, baseNPCRecord);
+        if newNPCPlaced then
+          break;
       end;
     end;
+      if newNPCPlaced then
+        AddMessage('The NPC was successfully placed.')
+      else
+        AddMessage('Failed to place NPC.');
   end;
   
   Result := 0;
