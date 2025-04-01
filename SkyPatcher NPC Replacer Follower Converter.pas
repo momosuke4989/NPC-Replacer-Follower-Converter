@@ -39,7 +39,7 @@ const
   DEFAULT_PROTECTED = '1';
   DEFAULT_ESSENTIAL = '0';
 
-  // Used to reference the source of a Relationship record. Change prohibited
+  // Used to reference the source. Change prohibited
   POTENTIAL_MARRIAGE_FACTION = $00019809;
   POTENTIAL_FOLLOWER_FACTION = $0005C84D;
   CURRENT_FOLLOWER_FACTION = $0005C84E;
@@ -86,6 +86,7 @@ begin
   Result := 0;
   
   // Set record variables
+  // TODO:Added a process to check whether the record settings are correct.
   potMarriageFac := RecordByFormID(FileByIndex(0), POTENTIAL_MARRIAGE_FACTION, True);
   potFollowerFac := RecordByFormID(FileByIndex(0), POTENTIAL_FOLLOWER_FACTION, True);
   curFollowerFac := RecordByFormID(FileByIndex(0), CURRENT_FOLLOWER_FACTION, True);
@@ -120,8 +121,8 @@ end;
 
 function Process(e: IInterface): integer;
 var
-  vmad, factions, newFaction, aiPackages, newAiPackage, perks, newPerk, combatStyle, voiceElement, outfit, inventory, newItem, itemRecord, flags: IInterface;
-  relrecordGroup, npcRecordGroup: IwbGroupRecord;
+  vmad, factions, newFaction, aiPackages, newAiPackage, perks, newPerk, combatStyle, outfit, inventory, newItem, itemRecord, flags: IInterface;
+  relRecordGroup, npcRecordGroup: IwbGroupRecord;
   existRelRec, baseNPCRecord, refCell, newCell, baseRel, rel: IwbMainRecord;
   baseFile : IwbFile;
   NPCEditorID, baseNPCEditorID, npcName, relEditorID, itemType, voice: string;
@@ -180,6 +181,7 @@ begin
   end;
   
   // Set name
+  // TODO:Output the formID and EditorID of NPCs whose names were blank to a .txt file.
   if ENABLE_SET_NAME then begin
     npcName := GetElementEditValues(e, 'FULL');
     // If name is blank, assign it the Editor ID to replace
@@ -254,7 +256,6 @@ begin
     end;
   end;
   
-  
   // Modify Faction
   if ENABLE_SET_FACTIONS then begin
     // If a Factions element exists, delete it and clear the Factions element
@@ -281,6 +282,7 @@ begin
   end;
   
   // Add Perks
+  // TODO:Avoid adding duplicate parks
   if ENABLE_ADD_PERKS then begin
     perks := ElementByPath(e, 'Perks');
     if not Assigned(perks) then begin
@@ -326,6 +328,7 @@ begin
   end;
 
   // Get the location of the NPC to be replaced and place it in the same location
+  // TODO:Output the FormID and EditorID of the failed NPC record to a .txt file
   if ENABLE_ADD_HOME_LOCATION then begin
     newNPCPlaced := false;
     // File scanning loop
