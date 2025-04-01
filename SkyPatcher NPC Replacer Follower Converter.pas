@@ -125,7 +125,7 @@ var
   existRelRec, baseNPCRecord, refCell, newCell, baseRel, rel: IwbMainRecord;
   baseFile : IwbFile;
   NPCEditorID, baseNPCEditorID, npcName, relEditorID, itemType, voice: string;
-  i, underscorePos, useTraitsFlag: integer;
+  i, underscorePos, templateFlags: integer;
 begin
   // Process only NPC records
   if Signature(e) <> 'NPC_' then Exit;
@@ -134,8 +134,8 @@ begin
   
   // Depending on the option, NPCs with the UseTraits flag will skip processing.
   if DISABLE_USE_TRAITS_TEMPLATE_NPC then begin
-    useTraitsFlag := GetElementNativeValues(ElementBySignature(e, 'ACBS'), 'Template Flags');
-    if (useTraitsFlag and $01) <> 0 then begin
+    templateFlags := GetElementNativeValues(ElementBySignature(e, 'ACBS'), 'Template Flags');
+    if (templateFlags and $01) <> 0 then begin
       AddMessage('This NPC has the Use Traits flag set. Skip processing.');
       Exit;
     end;
@@ -194,11 +194,17 @@ begin
   if ENABLE_SET_VOICE then begin
     voice := GetElementEditValues(e, 'VTCK');
     if voice = '' then begin
-      voiceElement := Add(e, 'VTCK', True);
-      if GetElementEditValues(e, 'Flags\Female') = 1 then
-        SetEditValues(voiceElement, IntToHex(GetLoadOrderFormID(defaultFollowerVoiceFemale), 8))
-      else
-        SetEditValues(voiceElement, IntToHex(GetLoadOrderFormID(defaultFollowerVoiceMale), 8));
+      AddMessage(EditorID(e) +' does not set Voice Type.');
+      Add(e, 'VTCK', True);
+      flags := ElementByPath(e, 'ACBS - Configuration');
+      
+      if Assigned(flags) then begin
+        if (GetElementNativeValues(flags, 'Flags\Female') and $01) <> 0 then
+          SetElementEditValues(e, 'VTCK', IntToHex(GetLoadOrderFormID(defaultFollowerVoiceFemale), 8))
+        else
+          SetElementEditValues(e, 'VTCK', IntToHex(GetLoadOrderFormID(defaultFollowerVoiceMale), 8));
+      end;
+      AddMessage(EditorID(e) +' set Voice Type is ' + GetElementEditValues(e, 'VTCK'));
     end;
   end;
 
