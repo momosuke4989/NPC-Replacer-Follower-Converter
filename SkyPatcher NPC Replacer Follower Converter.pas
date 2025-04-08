@@ -75,74 +75,6 @@ begin
     AddMessage('Failed to find ACHR record.');
 end;
 
-// Function to search for ACHR record in Cell
-function FindACHRInCells(plugin: IwbFile; targetEditorID: string): Boolean;
-var
-  i: Integer;
-  cell, achr: IInterface;
-begin
-  Result := False;
-  cell := GroupBySignature(plugin, 'CELL');
-  if not Assigned(cell) then begin
-    //AddMessage('This plugin does not have CELL records');
-    Exit;
-  end;
-  
-  for i := 0 to Pred(ElementCount(cell)) do
-  begin
-    achr := ElementByIndex(cell, i);
-    if Signature(achr) = 'ACHR' then
-    begin
-      if GetElementEditValues(achr, 'EDID') = targetEditorID then
-      begin
-        AddMessage('Found ACHR in CELL: ' + FullPath(achr));
-        Result := True;
-        Exit;
-      end;
-    end;
-  end;
-end;
-
-// Function to search ACHR records in Worldspace
-function FindACHRInWorldspaces(plugin: IwbFile; targetEditorID: string): Boolean;
-var
-  i, j: Integer;
-  worldspace, block, subBlock, achr: IInterface;
-begin
-  Result := False;
-
-  worldspace := GroupBySignature(plugin, 'WRLD');
-  if not Assigned(worldspace) then begin
-    //AddMessage('This plugin does not have WRLD records');
-    Exit;
-  end;
-
-  for i := 0 to Pred(ElementCount(worldspace)) do
-  begin
-    block := ElementByIndex(worldspace, i);
-
-    for j := 0 to Pred(ElementCount(block)) do
-    begin
-      subBlock := ElementByIndex(block, j);
-
-      for achr := 0 to Pred(ElementCount(subBlock)) do
-      begin
-        if Signature(achr) = 'ACHR' then
-        begin
-          if GetElementEditValues(achr, 'EDID') = targetEditorID then
-          begin
-            AddMessage('Found ACHR in WRLD: ' + FullPath(achr));
-            Result := True;
-            Exit;
-          end;
-        end;
-      end;
-    end;
-  end;
-end;
-
-
-
 function Initialize: integer;
 begin
   Result := 0;
@@ -187,7 +119,7 @@ var
   relRecordGroup, npcRecordGroup: IwbGroupRecord;
   existRelRec, baseNPCRecord, NPC_ACHRRecord, refCell, newCell, baseRel, rel: IwbMainRecord;
   baseFile : IwbFile;
-  NPCEditorID, baseNPCEditorID, npcName, relEditorID, itemType, voice: string;
+  NPCEditorID, baseNPCEditorID, npcName, nameSuffix, relEditorID, itemType, voice: string;
   i, underscorePos, templateFlags: integer;
 begin
   // Process only NPC records
@@ -249,9 +181,14 @@ begin
     // If name is blank, assign it the Editor ID to replace
     if npcName = '' then
       npcName := baseNPCEditorID;
+    nameSuffix := ' [' + Copy(NPCEditorID, 0, underscorePos - 1) + ']';
+    if Pos(nameSuffix, npcName) = 0 then begin
+      npcName := npcName + nameSuffix;
+      SetElementEditValues(e, 'FULL', npcName);
+    end;
     // Add prefix after default name
-    npcName := npcName + ' [' + Copy(NPCEditorID, 0, underscorePos - 1) + ']';
-    SetElementEditValues(e, 'FULL', npcName);
+    //npcName := npcName + nameSuffix;
+    //SetElementEditValues(e, 'FULL', npcName);
   end;
 
   // Set voice type
