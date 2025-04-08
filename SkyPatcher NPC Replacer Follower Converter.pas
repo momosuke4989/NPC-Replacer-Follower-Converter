@@ -51,35 +51,97 @@ var
   fileSearchOffset: Integer;
   newNPCPlaced : boolean;
 
-function FindNPCPlacedRecord(e, baseNPCRecord: IwbMainRecord;): boolean;
+function FindNPCPlacedRecord(baseNPCRecord: IwbMainRecord;): IwbMainRecord;
 var
-  refCell, newCell: IwbMainRecord;
+  refRecord: IwbMainRecord;
   i: integer;
+  findRecordFlag: boolean;
 begin
-  Result := false;
+  Result := nil;
+  findRecordFlag := false;
   for i := 0 to Pred(ReferencedByCount(baseNPCRecord)) do begin
     // Scan for records that reference the replaced NPC record
-    refCell := ReferencedByIndex(baseNPCRecord, i);
-    //AddMessage(IntToStr(i) + '. RefernceRecord Signature: ' + Signature(refCell));
-    // Detect ACHR (NPC placement) record
-    if Signature(refCell) = 'ACHR' then begin
-      // Copy the found record
-      newCell := wbCopyElementToFile(refCell, GetFile(e), True, True);
-      // If the cell copy is successful, make various changes and move on to the next NPC record
-      if Assigned(newCell) then begin
-        SetIsPersistent(newCell, true);
-        SetIsInitiallyDisabled(newCell, false);
-        SetElementEditValues(newCell, 'EDID', EditorID(e) + 'Ref');
-        SetEditValue(ElementByPath(newCell, 'NAME'), GetEditValue(e));
-        AddMessage(Format('Copied Cell NPC Editor ID: %s, Record Editor ID: %s', [GetElementEditValues(newCell, 'NAME'), GetElementEditValues(newCell, 'EDID')]));
-        Result := true;
+    refRecord := ReferencedByIndex(baseNPCRecord, i);
+    //AddMessage(IntToStr(i) + '. RefernceRecord Signature: ' + Signature(refRecord));
+    if Signature(refRecord) = 'ACHR' then begin
+      Result := refRecord;
+      findRecordFlag := true;
+      break;
+    end;
+  end;
+  if findRecordFlag then
+    AddMessage('Success to find ACHR record.')
+  else
+    AddMessage('Failed to find ACHR record.');
+end;
+
+// Function to search for ACHR record in Cell
+function FindACHRInCells(plugin: IwbFile; targetEditorID: string): Boolean;
+var
+  i: Integer;
+  cell, achr: IInterface;
+begin
+  Result := False;
+  cell := GroupBySignature(plugin, 'CELL');
+  if not Assigned(cell) then begin
+    //AddMessage('This plugin does not have CELL records');
+    Exit;
+  end;
+  
+  for i := 0 to Pred(ElementCount(cell)) do
+  begin
+    achr := ElementByIndex(cell, i);
+    if Signature(achr) = 'ACHR' then
+    begin
+      if GetElementEditValues(achr, 'EDID') = targetEditorID then
+      begin
+        AddMessage('Found ACHR in CELL: ' + FullPath(achr));
+        Result := True;
         Exit;
-      end
-      else
-        AddMessage('Failed to copy cell.');
+      end;
     end;
   end;
 end;
+
+// Function to search ACHR records in Worldspace
+function FindACHRInWorldspaces(plugin: IwbFile; targetEditorID: string): Boolean;
+var
+  i, j: Integer;
+  worldspace, block, subBlock, achr: IInterface;
+begin
+  Result := False;
+
+  worldspace := GroupBySignature(plugin, 'WRLD');
+  if not Assigned(worldspace) then begin
+    //AddMessage('This plugin does not have WRLD records');
+    Exit;
+  end;
+
+  for i := 0 to Pred(ElementCount(worldspace)) do
+  begin
+    block := ElementByIndex(worldspace, i);
+
+    for j := 0 to Pred(ElementCount(block)) do
+    begin
+      subBlock := ElementByIndex(block, j);
+
+      for achr := 0 to Pred(ElementCount(subBlock)) do
+      begin
+        if Signature(achr) = 'ACHR' then
+        begin
+          if GetElementEditValues(achr, 'EDID') = targetEditorID then
+          begin
+            AddMessage('Found ACHR in WRLD: ' + FullPath(achr));
+            Result := True;
+            Exit;
+          end;
+        end;
+      end;
+    end;
+  end;
+end;
+
+
 
 function Initialize: integer;
 begin
@@ -123,7 +185,7 @@ function Process(e: IInterface): integer;
 var
   vmad, factions, newFaction, aiPackages, newAiPackage, perks, newPerk, combatStyle, outfit, inventory, newItem, itemRecord, flags: IInterface;
   relRecordGroup, npcRecordGroup: IwbGroupRecord;
-  existRelRec, baseNPCRecord, refCell, newCell, baseRel, rel: IwbMainRecord;
+  existRelRec, baseNPCRecord, NPC_ACHRRecord, refCell, newCell, baseRel, rel: IwbMainRecord;
   baseFile : IwbFile;
   NPCEditorID, baseNPCEditorID, npcName, relEditorID, itemType, voice: string;
   i, underscorePos, templateFlags: integer;
@@ -331,8 +393,20 @@ begin
   // TODO:Output the FormID and EditorID of the failed NPC record to a .txt file
   if ENABLE_ADD_HOME_LOCATION then begin
     newNPCPlaced := false;
+    // Skip if ACHR record already exists
+    AddMessage('Check if this NPC is already placed...');
+    NPC_ACHRRecord := FindNPCPlacedRecord(e);
+    if Assigned(NPC_ACHRRecord) then begin
+      AddMessage('The NPC is already placed.');
+      newNPCPlaced := true;
+    end
+    else
+      AddMessage('The NPC is not placed.');
+    
     // File scanning loop
     for i := fileSearchOffset to FileCount - 2 do begin
+      if newNPCPlaced then
+        break;
       // Exclude Update from scanning
       if i = 1 then
         continue;
@@ -345,15 +419,25 @@ begin
       baseNPCRecord := MainRecordByEditorID(npcRecordGroup, baseNPCEditorID);
       
       if Assigned(baseNPCRecord) then begin
-        newNPCPlaced := FindNPCPlacedRecord(e, baseNPCRecord);
-        if newNPCPlaced then
-          break;
+        // Detect ACHR (NPC placement) record
+        AddMessage('Check original NPC placement record...');
+        refCell := FindNPCPlacedRecord(baseNPCRecord);
+        // Copy the found record
+        newCell := wbCopyElementToFile(refCell, GetFile(e), True, True);
+        // If the cell copy is successful, make various changes and move on to the next NPC record
+        if Assigned(newCell) then begin
+          SetIsPersistent(newCell, true);
+          SetIsInitiallyDisabled(newCell, false);
+          SetElementEditValues(newCell, 'EDID', EditorID(e) + 'Ref');
+          SetEditValue(ElementByPath(newCell, 'NAME'), GetEditValue(e));
+          AddMessage(Format('Copied Cell NPC Editor ID: %s, Record Editor ID: %s', [GetElementEditValues(newCell, 'NAME'), GetElementEditValues(newCell, 'EDID')]));
+          AddMessage('The NPC was successfully placed.');
+          newNPCPlaced := true;
+        end;
       end;
     end;
-      if newNPCPlaced then
-        AddMessage('The NPC was successfully placed.')
-      else
-        AddMessage('Failed to place NPC.');
+    if newNPCPlaced = false then
+      AddMessage('Failed to place NPC.');
   end;
   
   Result := 0;
