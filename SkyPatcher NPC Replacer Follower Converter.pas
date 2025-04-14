@@ -5,28 +5,6 @@ implementation
 uses xEditAPI, SysUtils, StrUtils, Windows;
 
 const
-  // Turn each change on/off
-  DISABLE_USE_TRAITS_TEMPLATE_NPC = True;
-  
-  ENABLE_SET_VMADS = True;
-  ENABLE_SET_AI_PACKAGES = True;
-  ENABLE_SET_COMBAT_STYLE = True;
-  ENABLE_SET_NAME = True;
-  ENABLE_SET_OUTFIT = True;
-  ENABLE_SET_INVETORY = True;
-  ENABLE_SET_FLAGS = True;
-  ENABLE_SET_VOICE = True;
-  ENABLE_SET_ESSENTIAL_PROTECTED = True;
-  ENABLE_SET_FACTIONS = True;
-  
-  ENABLE_ADD_PERKS = True;
-  ENABLE_ADD_RELATIONSHIP = True;
-  ENABLE_ADD_HOME_LOCATION = True;
-  
-  // Constants related to searching for cells to place NPCs
-  SERCH_EXCLUDE_VANILLA_FILES = False;  // Whether to search for vanilla game files
-  MAX_SERCH_FILES_COUNT = 30;           // Maximum number of plugin files loaded
-
   // Default value for each change. Specify by Form ID
   DEFAULT_WEAPON_ITEM = $0001397E;            // 0001397E Iron Dagger
   DEFAULT_AI_PACKAGE = $0001B217;             // 0001B217 DefaultSandboxEditorLocation512
@@ -34,22 +12,88 @@ const
   DEFAULT_OUTFIT = $0009D5DF;                 // 0009D5DF FarmClothesOutfit04
   DEFAULT_FOLLOWER_VOICE_MALE = $00013AD2;    // 00013AD2 MaleEvenToned
   DEFAULT_FOLLOWER_VOICE_FEMALE = $00013ADD;  // 00013ADD FemaleEvenToned
+  DEFAULT_ADD_PERK = $0005820C;               // 0005820C Light Foot
   
- // Set the Protected/Essential flag. Only one of them can be turned on.
-  DEFAULT_PROTECTED = '1';
-  DEFAULT_ESSENTIAL = '0';
-
+  // Option to exclude NPCs with the Use Traits flag
+  DISABLE_USE_TRAITS_TEMPLATE_NPC = True;
+  
+  // Constants related to searching for cells to place NPCs
+  SERCH_EXCLUDE_VANILLA_FILES = False;  // Whether to search for vanilla game files
+  MAX_SERCH_FILES_COUNT = 30;           // Maximum number of plugin files loaded
+  
   // Used to reference the source. Change prohibited
   POTENTIAL_MARRIAGE_FACTION = $00019809;
   POTENTIAL_FOLLOWER_FACTION = $0005C84D;
   CURRENT_FOLLOWER_FACTION = $0005C84E;
   LYDIA_PLAYER_RELATIONSHIP = $00103AED;
-  PERK_LIGHT_FOOT = $0005820C;
 var
   potMarriageFac, potFollowerFac, curFollowerFac: IwbMainRecord;
   defaultWeaponItem, defaultAIPackage, defaultCombatStyle, defaultOutfit, defaultFollowerVoiceMale, defaultFollowerVoiceFemale, addPerk: IwbMainRecord;
   fileSearchOffset: Integer;
+  enableSetVMADS, enableSetAIPackages, enableSetCombatStyle, enableSetName, enableSetOutfit, enableSetInventory, enableSetFlags, enableSetVoice: boolean;
+  enableSetEssentialProtected, enableSetFactions, enableAddPerks, enableAddRelationship, enableAddHomeLocation: boolean;
   newNPCPlaced : boolean;
+  defaultProtected, defaultEssential: string;
+
+function ShowCheckboxForm(const options: TStringList; out selected: TStringList): Boolean;
+var
+  form: TForm;
+  checklist: TCheckListBox;
+  btnOK, btnCancel: TButton;
+  i: Integer;
+begin
+  Result := False;
+
+  form := TForm.Create(nil);
+  try
+    form.Caption := 'Select Options';
+    form.Width := 350;
+    form.Height := 300;
+    form.Position := poScreenCenter;
+
+    checklist := TCheckListBox.Create(form);
+    checklist.Parent := form;
+    checklist.Align := alTop;
+    checklist.Height := 200;
+
+    // Add a choice
+    for i := 0 to options.Count - 1 do begin
+      checklist.Items.Add(options[i]);
+      checklist.Checked[i] := True;
+    end;
+
+    btnOK := TButton.Create(form);
+    btnOK.Parent := form;
+    btnOK.Caption := 'OK';
+    btnOK.ModalResult := mrOk;
+    btnOK.Width := 75;
+    btnOK.Top := checklist.Top + checklist.Height + 10;
+    btnOK.Left := (form.ClientWidth div 2) - btnOK.Width - 10;
+
+    btnCancel := TButton.Create(form);
+    btnCancel.Parent := form;
+    btnCancel.Caption := 'Cancel';
+    btnCancel.ModalResult := mrCancel;
+    btnCancel.Width := 75;
+    btnCancel.Top := btnOK.Top;
+    btnCancel.Left := (form.ClientWidth div 2) + 10;
+
+    form.BorderStyle := bsDialog;
+    form.Position := poScreenCenter;
+
+    if form.ShowModal = mrOk then
+    begin
+      Result := True;
+      for i := 0 to checklist.Items.Count - 1 do
+        if checklist.Checked[i] then
+          selected.Add('True')
+        else
+          selected.Add('False');
+    end;
+  finally
+    form.Free;
+  end;
+end;
 
 function FindNPCPlacedRecord(baseNPCRecord: IwbMainRecord;): IwbMainRecord;
 var
@@ -76,7 +120,12 @@ begin
 end;
 
 function Initialize: integer;
+var
+    opts, selected: TStringList;
+    i: Integer;
 begin
+  opts                := TStringList.Create;
+  selected            := TStringList.Create;
   Result := 0;
   
   // Set record variables
@@ -92,9 +141,104 @@ begin
   defaultFollowerVoiceMale := RecordByFormID(FileByIndex(0), DEFAULT_FOLLOWER_VOICE_MALE, True);
   defaultFollowerVoiceFemale := RecordByFormID(FileByIndex(0), DEFAULT_FOLLOWER_VOICE_FEMALE, True);
   
-  addPerk := RecordByFormID(FileByIndex(0), PERK_LIGHT_FOOT, True);
+  addPerk := RecordByFormID(FileByIndex(0), DEFAULT_ADD_PERK, True);
   
-  if ENABLE_ADD_HOME_LOCATION then begin
+  // Option flag variables
+  enableSetVMADS := false;
+  enableSetAIPackages := false;
+  enableSetCombatStyle := false;
+  enableSetName := false;
+  enableSetOutfit := false;
+  enableSetInventory := false;
+  enableSetFlags := false;
+  enableSetVoice := false;
+  enableSetEssentialProtected := false;
+  enableSetFactions := false;
+  
+  enableAddPerks := false;
+  enableAddRelationship := false;
+  enableAddHomeLocation := false;
+  
+  // Protected/Essential flag. Only one of them can be turned on.
+  defaultProtected := '0';
+  defaultEssential := '0';
+  
+  // Setting each options
+  try
+    opts.Add('Set VMADS');
+    opts.Add('Set AI Packages');
+    opts.Add('Set Combat Style');
+    opts.Add('Set Name');
+    opts.Add('Set Outfit');
+    opts.Add('Set Inventory');
+    opts.Add('Set Flags');
+    opts.Add('Set Voice');
+    opts.Add('Set Immortality');
+    opts.Add('Set Factions');
+    opts.Add('Add Perks');
+    opts.Add('Add Relationship');
+    opts.Add('Add Home Location');
+
+    if ShowCheckboxForm(opts, selected) then
+    begin
+      AddMessage('You selected:');
+      for i := 0 to selected.Count - 1 do
+        AddMessage(opts[i] + ' - ' + selected[i]);
+    end
+    else begin
+      AddMessage('Selection was canceled.');
+      Result := -1;
+      Exit;
+    end;
+    
+
+  
+    // Store the checkbox input in a flag variables
+    if selected[0] = 'True' then
+      enableSetVMADS := true;
+      
+    if selected[1] = 'True' then
+      enableSetAIPackages := true;
+      
+    if selected[2] = 'True' then
+      enableSetCombatStyle := true;
+      
+    if selected[3] = 'True' then
+      enableSetName := true;
+      
+    if selected[4] = 'True' then
+      enableSetOutfit := true;
+      
+    if selected[5] = 'True' then
+      enableSetInventory := true;
+      
+    if selected[6] = 'True' then
+      enableSetFlags := true;
+      
+    if selected[7] = 'True' then
+      enableSetVoice := true;
+      
+    if selected[8] = 'True' then
+      enableSetEssentialProtected := true;
+      
+    if selected[9] = 'True' then
+      enableSetFactions := true;
+      
+    if selected[10] = 'True' then
+      enableAddPerks := true;
+      
+    if selected[11] = 'True' then
+      enableAddRelationship := true;
+      
+    if selected[12] = 'True' then
+      enableAddHomeLocation := true;
+      
+  finally
+    opts.Free;
+    selected.Free;
+  end;
+
+  if enableAddHomeLocation then begin
     // Check number of files loaded
     if FileCount > MAX_SERCH_FILES_COUNT then begin
       // Ask user if they want to continue as there are too many files loaded
@@ -111,6 +255,13 @@ begin
     else
       fileSearchOffset := 0;
   end;
+  
+  if enableSetEssentialProtected then begin
+    if MessageDlg('Would you like to set it to Essential or Protected? (Yes: Essential, No: Protected)', mtConfirmation, [mbYes, mbNo], 0) = mrNo then
+      defaultProtected := '1'
+    else
+      defaultEssential := '1';
+  end
 end;
 
 function Process(e: IInterface): integer;
@@ -144,14 +295,14 @@ begin
   //AddMessage('Base NPC Editor ID: ' + baseNPCEditorID);
     
   // Delete quest script
-  if ENABLE_SET_VMADS then begin
+  if enableSetVMADS then begin
     vmad := ElementBySignature(e, 'VMAD');
     if Assigned(vmad) then
       RemoveElement(e, 'VMAD');
   end;
 
   // Set AI package
-  if ENABLE_SET_AI_PACKAGES then begin
+  if enableSetAIPackages then begin
     aiPackages := ElementByPath(e, 'Packages');
     if Assigned(aiPackages) then
       RemoveElement(e, 'Packages');
@@ -164,7 +315,7 @@ begin
   end;
 
   // Set Combat Style
-  if ENABLE_SET_COMBAT_STYLE then begin
+  if enableSetCombatStyle then begin
     if GetElementEditValues(e, 'ZNAM') = '' then
       begin
         // Get or create Combat Style element
@@ -176,7 +327,7 @@ begin
   
   // Set name
   // TODO:Output the formID and EditorID of NPCs whose names were blank to a .txt file.
-  if ENABLE_SET_NAME then begin
+  if enableSetName then begin
     npcName := GetElementEditValues(e, 'FULL');
     // If name is blank, assign it the Editor ID to replace
     if npcName = '' then
@@ -192,7 +343,7 @@ begin
   end;
 
   // Set voice type
-  if ENABLE_SET_VOICE then begin
+  if enableSetVoice then begin
     voice := GetElementEditValues(e, 'VTCK');
     if voice = '' then begin
       AddMessage(EditorID(e) +' does not set Voice Type.');
@@ -210,7 +361,7 @@ begin
   end;
 
   // Set Outfit
-  if ENABLE_SET_OUTFIT then begin
+  if enableSetOutfit then begin
     outfit := ElementBySignature(e, 'DOFT');
     if not Assigned(outfit) then
       Add(e, 'DOFT', True);
@@ -218,7 +369,7 @@ begin
   end;
   
   // Set Items
-  if ENABLE_SET_INVETORY then begin
+  if enableSetInventory then begin
     // Get inventory list
     inventory := ElementByPath(e, 'Items');
     // Clear inventory
@@ -234,7 +385,7 @@ begin
   end;
   
   // Set Flag
-  if ENABLE_SET_FLAGS then begin
+  if enableSetFlags then begin
     flags := ElementByPath(e, 'ACBS - Configuration');
     if Assigned(flags) then begin
       SetElementEditValues(flags, 'Flags\Respown', 0);
@@ -248,15 +399,15 @@ begin
   end;
   
   // Essential / Protected settings
-  if ENABLE_SET_ESSENTIAL_PROTECTED then begin
+  if enableSetEssentialProtected then begin
     if Assigned(flags) then begin
-      SetElementEditValues(flags, 'Flags\Essential', DEFAULT_ESSENTIAL);
-      SetElementEditValues(flags, 'Flags\Protected', DEFAULT_PROTECTED);
+      SetElementEditValues(flags, 'Flags\Essential', defaultEssential);
+      SetElementEditValues(flags, 'Flags\Protected', defaultProtected);
     end;
   end;
   
   // Modify Faction
-  if ENABLE_SET_FACTIONS then begin
+  if enableSetFactions then begin
     // If a Factions element exists, delete it and clear the Factions element
     factions := ElementByPath(e, 'Factions');
     if Assigned(factions) then
@@ -282,7 +433,7 @@ begin
   
   // Add Perks
   // TODO:Avoid adding duplicate parks
-  if ENABLE_ADD_PERKS then begin
+  if enableAddPerks then begin
     perks := ElementByPath(e, 'Perks');
     if not Assigned(perks) then begin
       perks := Add(e, 'Perks', True);
@@ -293,7 +444,7 @@ begin
   end;
 
   // Add Relationship record
-  if ENABLE_ADD_RELATIONSHIP then begin
+  if enableAddRelationship then begin
     relEditorID := NPCEditorID + 'Rel';
     relRecordGroup := GroupBySignature(GetFile(e), 'RELA');
     existRelRec := MainRecordByEditorID(relRecordGroup, relEditorID);
@@ -328,7 +479,7 @@ begin
 
   // Get the location of the NPC to be replaced and place it in the same location
   // TODO:Output the FormID and EditorID of the failed NPC record to a .txt file
-  if ENABLE_ADD_HOME_LOCATION then begin
+  if enableAddHomeLocation then begin
     newNPCPlaced := false;
     // Skip if ACHR record already exists
     AddMessage('Check if this NPC is already placed...');
